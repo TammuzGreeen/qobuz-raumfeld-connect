@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Raumfeld · Qobuz</title>
+<style>
+:root{color-scheme:dark;font:16px system-ui;background:#131819;color:#e4ece9}body{max-width:760px;margin:7vh auto;padding:24px}h1{font-size:2.6rem;margin-bottom:8px}p{color:#afc1ba;line-height:1.6}.card{background:#1e2827;border:1px solid #354741;border-radius:16px;padding:24px;margin:24px 0}button,input,select{font:inherit;border-radius:7px;padding:10px;border:1px solid #4c6258;background:#24342c;color:inherit}button{cursor:pointer;background:#b8e4ba;color:#17261b;margin:8px 8px 8px 0}input[type=password]{width:70%}label.room{display:block;padding:14px 0;border-bottom:1px solid #354741}small{color:#a2b3ad}#message{white-space:pre-wrap}a{color:#b8e4ba}
+</style>
+<h1>Raumfeld · Qobuz</h1><p>Choose speakers for Qobuz Connect. Native Spotify stays protected until you explicitly select a speaker in the Qobuz app.</p>
+<section class="card" id="unlock"><h2>Open setup</h2><p>Enter the setup token from your installation’s <code>.env</code> file.</p><input id="token" type="password" placeholder="Setup token" autocomplete="current-password"><button id="unlockButton">Continue</button></section>
+<main id="settings" hidden><section class="card"><h2>Qobuz account</h2><p id="account"></p><button id="login">Sign in with Qobuz</button><button id="logout">Sign out</button></section>
+<section class="card"><h2>Speakers</h2><p id="discovery"></p><div id="rooms"></div><p><label>Audio quality <select id="quality"><option value="5">MP3</option><option value="6">CD quality · recommended</option><option value="7">Up to 24-bit / 96 kHz</option><option value="27">Up to 24-bit / 192 kHz</option></select></label></p><button id="save">Save speakers and quality</button><button id="refresh">Refresh</button><p><small>Saving releases existing Qobuz sessions. Reselect the speaker in Qobuz to resume. Grouped rooms are unavailable in this release.</small></p></section></main>
+<p id="message" role="status"></p><p><small>Version 0.2.0 · Hardware playback has not yet been verified.</small></p>
+<script>
+let token=sessionStorage.getItem('setupToken')||'';
+const $=id=>document.getElementById(id);
+async function api(path,body){const r=await fetch('/api/'+path,{method:body===undefined?'GET':'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});if(!r.ok)throw Error(await r.text());return r.json()}
+async function refresh(){try{const s=await api('status');$('settings').hidden=false;$('unlock').hidden=true;$('account').textContent=s.auth==='connected'?'Signed in':s.auth.replaceAll('_',' ');$('discovery').textContent=!s.lanAddress?'Set LAN_ADDRESS in your .env file and restart.':s.raumfeldReady?'Select the rooms you want to see in Qobuz.':'Waiting for Raumfeld discovery…';$('quality').value=s.quality;$('rooms').replaceChildren();for(const room of s.rooms){const label=document.createElement('label');label.className='room';const box=document.createElement('input');box.type='checkbox';box.value=room.id;box.checked=s.selectedRooms.includes(room.id);box.disabled=room.grouped&&!box.checked;label.append(box,document.createTextNode(' '+room.name+' · '+room.source+(room.grouped?' · ungroup in Teufel to play':'')+(room.fresh?'':' · unavailable')));$('rooms').append(label)}$('message').textContent=s.advertised.length+' speaker(s) advertised in Qobuz.'}catch(e){$('message').textContent='Unable to load setup. Check your token and connection.';$('unlock').hidden=false}}
+$('unlockButton').onclick=()=>{token=$('token').value;sessionStorage.setItem('setupToken',token);refresh()};
+$('refresh').onclick=refresh;
+$('login').onclick=async()=>{try{const r=await api('login',{});location.href=r.url}catch(e){$('message').textContent='Unable to start login. Please retry.'}};
+$('logout').onclick=async()=>{await api('logout',{});refresh()};
+$('save').onclick=async()=>{try{await api('config',{rooms:[...document.querySelectorAll('#rooms input:checked')].map(e=>e.value),quality:Number($('quality').value)});$('message').textContent='Saved. Speakers will appear shortly; press Refresh to check.'}catch(e){$('message').textContent='Unable to save. Refresh discovery and try again.'}};
+if(token)refresh();
+</script></html>

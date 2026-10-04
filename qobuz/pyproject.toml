@@ -1,0 +1,10 @@
+[project]
+name = "raumfeld-qobuz-service"
+version = "0.2.0"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "qobuz-proxy @ https://github.com/leolobato/qobuz-proxy/archive/91db990abeb486005a8315a6b1e722df776c4ba4.tar.gz",
+]
+
+[tool.uv]
+package = false

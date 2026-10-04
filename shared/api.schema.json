@@ -1,0 +1,336 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:raumfeld-connect:api:v1",
+  "oneOf": [
+    {
+      "$ref": "#/definitions/state"
+    },
+    {
+      "$ref": "#/definitions/request"
+    },
+    {
+      "$ref": "#/definitions/decision"
+    },
+    {
+      "$ref": "#/definitions/control"
+    }
+  ],
+  "definitions": {
+    "source": {
+      "enum": [
+        "spotify",
+        "external",
+        "unknown",
+        "qobuz"
+      ]
+    },
+    "room": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "zoneId",
+        "rendererIds",
+        "source",
+        "fresh",
+        "protected"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "zoneId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rendererIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "source": {
+          "$ref": "#/definitions/source"
+        },
+        "fresh": {
+          "type": "boolean"
+        },
+        "protected": {
+          "type": "boolean"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "controllable": {
+          "type": "boolean"
+        },
+        "owned": {
+          "type": "boolean"
+        },
+        "grouped": {
+          "type": "boolean"
+        },
+        "transitioning": {
+          "type": "boolean"
+        }
+      }
+    },
+    "state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "apiVersion",
+        "revision",
+        "observedAt",
+        "host",
+        "topologyFresh",
+        "topologyAt",
+        "capabilities",
+        "rooms",
+        "zones",
+        "renderers"
+      ],
+      "properties": {
+        "apiVersion": {
+          "const": "1"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "observedAt": {
+          "type": "number"
+        },
+        "host": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "topologyFresh": {
+          "type": "boolean"
+        },
+        "topologyAt": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "discovery",
+            "playback",
+            "qobuzConnect"
+          ],
+          "properties": {
+            "discovery": {
+              "const": true
+            },
+            "playback": {
+              "type": "boolean"
+            },
+            "qobuzConnect": {
+              "type": "boolean"
+            }
+          }
+        },
+        "rooms": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/room"
+          }
+        },
+        "zones": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "roomIds"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "roomIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "renderers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "source",
+              "observedAt",
+              "transport",
+              "volume",
+              "fresh"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "source": {
+                "$ref": "#/definitions/source"
+              },
+              "observedAt": {
+                "type": "number"
+              },
+              "transport": {
+                "type": "string"
+              },
+              "volume": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 100
+              },
+              "fresh": {
+                "type": "boolean"
+              },
+              "positionMs": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "durationMs": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "roomId",
+        "intent"
+      ],
+      "properties": {
+        "roomId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "intent": {
+          "enum": [
+            "repair",
+            "automatic_takeover",
+            "explicit_takeover"
+          ]
+        }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "apiVersion",
+        "roomId",
+        "revision",
+        "policyAllowed",
+        "executable",
+        "reason",
+        "executionBlock"
+      ],
+      "properties": {
+        "apiVersion": {
+          "const": "1"
+        },
+        "roomId": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer"
+        },
+        "policyAllowed": {
+          "type": "boolean"
+        },
+        "executable": {
+          "const": false
+        },
+        "reason": {
+          "enum": [
+            "room_not_found",
+            "state_unavailable",
+            "explicit_selection",
+            "spotify_protected",
+            "unknown_source",
+            "external_source"
+          ]
+        },
+        "executionBlock": {
+          "const": "playback_not_implemented"
+        }
+      }
+    },
+    "control": {
+      "type": "object",
+      "required": [
+        "roomId",
+        "action"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "roomId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "action": {
+          "enum": [
+            "select",
+            "release",
+            "heartbeat",
+            "play",
+            "pause",
+            "resume",
+            "stop",
+            "seek",
+            "volume"
+          ]
+        },
+        "token": {
+          "type": "string"
+        },
+        "selectionId": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "value": {
+          "type": "integer"
+        }
+      }
+    }
+  }
+}

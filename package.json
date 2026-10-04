@@ -1,0 +1,26 @@
+{
+  "name": "raumfeld-connect",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Guarded Qobuz Connect for Raumfeld with native Spotify arbitration",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "start": "node raumkernel/main.js",
+    "test": "node --test tests/*.test.js",
+    "smoke": "node tests/smoke.js"
+  },
+  "dependencies": {
+    "node-raumkernel": "https://codeload.github.com/ChriD/node-raumkernel/tar.gz/2c79c9a3d2c7dcd2d8bc586540d435808142c116",
+    "xml2js": "0.6.2"
+  },
+  "devDependencies": {
+    "ajv": "8.18.0"
+  },
+  "overrides": {
+    "form-data": "2.5.6",
+    "qs": "6.16.0"
+  }
+}

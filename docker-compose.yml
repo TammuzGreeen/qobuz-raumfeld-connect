@@ -1,0 +1,23 @@
+services:
+  raumfeld-connect:
+    image: ghcr.io/tammuzgreeen/qobuz-raumfeld-connect:0.2.0
+    network_mode: host
+    init: true
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - raumfeld-data:/data
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      API_TOKEN: ${API_TOKEN:?Set API_TOKEN in .env to a random string of at least 32 characters}
+      RAUMFELD_HOST: ${RAUMFELD_HOST:-}
+      LAN_ADDRESS: ${LAN_ADDRESS:?Set LAN_ADDRESS to the Docker host IPv4 address on the speaker LAN}
+      API_BIND: 127.0.0.1
+    stop_grace_period: 12s
+volumes:
+  raumfeld-data:

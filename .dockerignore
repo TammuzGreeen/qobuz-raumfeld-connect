@@ -1,0 +1,23 @@
+.git
+node_modules
+.venv
+**/.venv
+**/__pycache__
+**/node_modules
+__pycache__
+*.pyc
+.env
+data
+*.egg-info
+**/*.egg-info
+
+# Local credentials and deployment data
+.env.*
+!.env.example
+credentials.json
+*.pem
+*.key
+*.p12
+*.pfx
+*.log
+**/credentials.json

@@ -1,0 +1,4 @@
+services:
+  raumfeld-connect:
+    build: .
+    image: raumfeld-connect:local
