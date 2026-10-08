@@ -11,7 +11,8 @@ class PlaybackTimeline:
     EVENTS = {'playback_event', 'play_attempt', 'metadata_lookup', 'stream_lookup',
               'relay_registered', 'node_play', 'relay_request', 'upstream_response',
               'audio_delivery', 'relay_error', 'transport_observed', 'uri_load',
-              'sources_confirmed', 'play_soap'}
+              'sources_confirmed', 'play_soap', 'report_start_attempt', 'report_start_result',
+              'report_end_attempt', 'report_end_result', 'renderer_soap'}
 
     def __init__(self):
         self.events = deque(maxlen=64)
@@ -32,13 +33,15 @@ class PlaybackTimeline:
         if type(item['attempt']) is not int or item['attempt'] < 0:
             item['attempt'] = 0
         for key, value in fields.items():
-            if key in {'status', 'elapsedMs', 'bytesWritten', 'messageType'} and type(value) is int and value >= 0:
+            if key in {'status', 'elapsedMs', 'bytesWritten', 'messageType', 'durationSeconds', 'upnpErrorCode'} and type(value) is int and value >= 0:
                 item[key] = value
-            elif key in {'success', 'rangeRequested', 'head', 'contentRangePresent'} and type(value) is bool:
+            elif key in {'success', 'rangeRequested', 'head', 'contentRangePresent', 'blobPresent', 'contextPresent'} and type(value) is bool:
                 item[key] = value
             elif key == 'contentType' and value in {'flac', 'mpeg', 'octet_stream', 'other', 'missing'}:
                 item[key] = value
             elif key == 'transport' and value in {'PLAYING', 'PAUSED_PLAYBACK', 'STOPPED', 'NO_MEDIA_PRESENT', 'UNKNOWN'}:
+                item[key] = value
+            elif key == 'action' and value in {'SetAVTransportURI', 'Play', 'Pause', 'Stop', 'Seek', 'SetVolume'}:
                 item[key] = value
         self.events.append(item)
 
@@ -76,9 +79,35 @@ class ObservedMetadata(MetadataService):
                                elapsedMs=round((time.monotonic() - started) * 1000))
 
 
+class ObservedReportingAPI:
+    """Delegate real reports/auth to the current API, retain only safe outcomes."""
+    def __init__(self, api, timeline):
+        self.api, self.timeline = api, timeline
+
+    async def report_streaming_start(self, **kwargs):
+        self.timeline.note('report_start_attempt')
+        success = False
+        try:
+            success = await self.api.report_streaming_start(**kwargs)
+            return success
+        finally:
+            self.timeline.note('report_start_result', success=success is True)
+
+    async def report_streaming_end(self, **kwargs):
+        fields = {'durationSeconds': kwargs.get('played_seconds', 0),
+                  'blobPresent': bool(kwargs.get('blob')), 'contextPresent': bool(kwargs.get('context_uuid'))}
+        self.timeline.note('report_end_attempt', **fields)
+        success = False
+        try:
+            success = await self.api.report_streaming_end(**kwargs)
+            return success
+        finally:
+            self.timeline.note('report_end_result', success=success is True, **fields)
+
+
 class ConnectDiagnostics(logging.Handler):
     def __init__(self):
-        super().__init__(logging.INFO)
+        super().__init__(logging.DEBUG)
         self.events = deque(maxlen=50)
 
     def emit(self, record):
@@ -90,7 +119,13 @@ class ConnectDiagnostics(logging.Handler):
             return
         event = None
         number = None
-        if text.startswith('Server error '):
+        report = re.match(r'^Streaming report \((start|end track [0-9]+)\) (ok|failed): HTTP ([0-9]{3})\b', text)
+        if report:
+            kind = 'start' if report[1] == 'start' else 'end'
+            event, number = f'streaming_report_{kind}_{"accepted" if report[2] == "ok" else "rejected"}', int(report[3])
+        elif re.match(r'^Streaming report \((start|end track [0-9]+)\) error:', text):
+            event = 'streaming_report_error'
+        elif text.startswith('Server error '):
             match = re.match(r'^Server error ([0-9]{1,6}):', text)
             if match:
                 event, number = 'cloud_server_error', int(match[1])
@@ -155,7 +190,7 @@ class ConnectDiagnostics(logging.Handler):
         from qobuz_proxy.auth.api_client import QobuzAPIClient
         for component in (DiscoveryService, WsManager, PlaybackCommandHandler, QobuzPlayer, MetadataService, StateReporter, QobuzAPIClient):
             logger = logging.getLogger(component.__module__)
-            logger.setLevel(logging.INFO)
+            logger.setLevel(logging.DEBUG if component is QobuzAPIClient else logging.INFO)
             # Bypass ordinary log output: only this sanitized event collector
             # receives these records. Other upstream logging remains suppressed.
             logger.propagate = False

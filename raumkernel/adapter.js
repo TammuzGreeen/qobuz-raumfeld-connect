@@ -107,6 +107,7 @@ class RaumkernelObserver {
       entry.version++;
       const {classify} = require('./state');
       if (classify(state) === 'spotify') {
+        this.store.emit('nativeSpotify', device.udn());
         this.store.observe(device.udn(), state, {refresh: false});
       }
     });

@@ -56,6 +56,9 @@ class Service:
         self.client, self.token = client, token
         self.data_dir = Path(data_dir)
         self.address = address
+        self.playback_path = os.environ.get('PLAYBACK_PATH', 'guarded')
+        if self.playback_path not in ('guarded', 'direct_dlna'):
+            raise ValueError('Invalid PLAYBACK_PATH')
         if address:
             ipaddress.IPv4Address(address)
         self.settings = load_json(self.data_dir / 'config.json', {'rooms': [], 'quality': 6})
@@ -103,7 +106,8 @@ class Service:
     async def status(self, request):
         return web.json_response({'auth': self.auth_status, 'lanAddress': self.address,
             'lanAddressLocal': local_address(self.address), 'stateError': self.state_error,
-            'quality': self.settings['quality'], 'selectedRooms': [r['id'] for r in self.settings['rooms']],
+            'quality': self.settings['quality'], 'playbackPath': self.playback_path,
+            'selectedRooms': [r['id'] for r in self.settings['rooms']],
             'rooms': self.state['rooms'], 'raumfeldReady': self.state['topologyFresh'],
             'topologyAt': self.state.get('topologyAt'), 'observedAt': self.state.get('observedAt'),
             'renderers': self.state.get('renderers', []),
@@ -120,6 +124,8 @@ class Service:
             raise web.HTTPBadRequest(text='Invalid rooms')
         if quality not in (5, 6, 7, 27):
             raise web.HTTPBadRequest(text='Invalid quality')
+        if self.playback_path == 'direct_dlna' and (len(ids) != 1 or quality != 6):
+            raise web.HTTPBadRequest(text='Direct experiment requires one room and CD quality')
         state = await self.client.state()
         known = {r['id']: r for r in state['rooms']}
         if any(r not in known for r in ids):
@@ -220,6 +226,9 @@ class Service:
             available = {r['id'] for r in state['rooms'] if (r['fresh'] or r.get('transitioning')) and
                          (not r['zoneId'] or next((len(z['roomIds']) for z in state['zones'] if z['id'] == r['zoneId']), 0) == 1)}
             desired = {r['id']: r for r in self.settings['rooms'] if r['id'] in available}
+            if self.playback_path == 'direct_dlna':
+                desired = ({r['id']: r for r in self.settings['rooms']}
+                           if len(self.settings['rooms']) == 1 and self.settings['quality'] == 6 else {})
             address_ready = local_address(self.address)
             for id in list(self.receivers):
                 if id not in desired or not address_ready:
@@ -231,7 +240,8 @@ class Service:
                         self.receiver_errors[id] = 'lan_address_not_local'
                         continue
                     if id not in self.receivers:
-                        receiver = Receiver(room, self.client, self.api, self.address, self.settings['quality'])
+                        receiver = Receiver(room, self.client, self.api, self.address, self.settings['quality'],
+                                            playback_path=self.playback_path)
                         try:
                             await receiver.start()
                         except Exception as error:
@@ -254,7 +264,8 @@ class Service:
                 self.state = {**self.state, 'topologyFresh': False, 'rooms': [
                     {**r, 'fresh': False} for r in self.state['rooms']]}
                 async with self.lock:
-                    await self.stop_receivers()
+                    if self.playback_path != 'direct_dlna':
+                        await self.stop_receivers()
             try:
                 await asyncio.wait_for(self.closed.wait(), timeout=5)
             except TimeoutError:

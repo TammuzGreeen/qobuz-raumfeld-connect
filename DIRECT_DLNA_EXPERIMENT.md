@@ -1,8 +1,61 @@
-# One-room direct-DLNA migration experiment — design review
+# One-room direct-DLNA migration experiment
 
-This is a design/probe branch, not a deployed alternative. No live account calls,
-speaker commands, zone repairs, configuration writes or deployments were performed
-for these probes. Preserve the current implementation and runtime rollback.
+This is an isolated opt-in implementation, not a deployed alternative. No live
+account calls, speaker commands, zone repairs or deployment updates were performed
+for its tests. The current runtime configuration/image were privately backed up
+for rollback, without changing the app or `/data`.
+
+## Implemented candidate
+
+`qobuz/dlna_backend.py` subclasses the pinned upstream DLNABackend/DLNAClient:
+upstream DIDL, state/position polling and ordinary player/reporting behavior remain.
+Node direct mode exposes binding/admission only and disables `/v1/control`.
+The default `guarded` path remains available and was not deleted.
+
+- `PLAYBACK_PATH=direct_dlna` is opt-in and requires one configured room at CD
+  quality. The candidate image embeds that flag using a Docker build argument,
+  allowing an image-only deployment without changing existing runtime settings.
+- Advertisement no longer depends on renderer presence in direct mode. Actual
+  playback lazily resolves its discovered description and validates exact UDN,
+  standalone membership and service origins. No description fallback/redirects.
+- Only actual admitted Play may request one unassigned-room zone creation. An
+  assigned but missing renderer is awaited boundedly, never dropped/recreated.
+- Same-identity rebinding retires the old client before read-only connection; it
+  preserves the receiver/player/cloud session. Old read responses cannot revoke
+  the current binding or reinstall retired HTTP sessions.
+- Every mutation checks the captured selection/client generation, current Node
+  authority/binding and exact virtual source at send time. Physical evidence is
+  structurally checked independently of virtual-observation order. Missing/empty
+  observations cannot confirm ownership; loading reads wait boundedly.
+- Initial selection permits replacement of its observed baseline only within a
+  10-second window. New native Spotify notifications and other unexpected physical
+  sources revoke immediately. A loaded track cannot tolerate its original Spotify
+  baseline as ownership or automatically reclaim a released session.
+- URI/Play/volume mutations are single shot. No recovery Stop, SOAP retry, delayed
+  volume setter, gapless arming, background repair or setter fallback.
+- Volume uses upstream virtual-renderer `SetVolume` only for this ungrouped room,
+  after read-only SCPD verification of its exact input declaration. This route is
+  a comparison variable, not a hardware-accepted substitute for SetRoomVolume.
+  Getter success is not setter proof. Uncertain writes require new complete physical
+  reads and new virtual proof to retain the session; further volume writes block.
+- Active knob readback is currently a modest two-second DLNA fallback; only changed
+  values are reported. RenderingControl-event-triggered readback is deferred, not
+  falsely claimed implemented. Cloud volume-change echoes never become setters.
+- Start/end reporting now has sanitized per-room attempt/result diagnostics and
+  API HTTP acknowledgement/rejection codes. No account/track/blob/context values
+  or API response bodies are retained. Server-side history/Last.fm is still unverified.
+
+Tests include real local SOAP/description/SCPD HTTP, a two-process Python→Node
+binding→direct SOAP→actual relay-byte flow, upstream player natural repeat/manual
+next/reporting, takeover, missing renderer, rebinding, stale callbacks, unknown
+evidence, declarations, volume uncertainty and no setter echoes.
+Latest source suite: **94 Node tests and 73 Python tests passed**. These are
+simulation results, not audible playback, real natural completion or scrobbling.
+The inherited checkpoint's expiry test passed in these runs; its earlier failing
+run is retained below as historical evidence, not rewritten as acceptance.
+
+The sections below record the source review and original design. Where an item
+was intentionally deferred or narrowed, the implemented status above takes precedence.
 
 ## Baselines and source revisions
 
@@ -241,10 +294,10 @@ credentials/audio/devices:
 
 These prove local code paths/responses only. Real Qobuz acknowledgement, listening
 history and Last.fm records remain unverified, consistent with the user's report.
-The isolated branch's full Python suite also passed: 50 tests, including these six
-probes. The inherited custom-controller Node expiry expectation remains 82/83 as
-recorded in the checkpoint; no direct-mode transport implementation is being
-declared validated by these architecture probes.
+At the design checkpoint the full Python suite passed 50 tests, including these
+six probes. The then-inherited Node expiry expectation was 82/83. Current
+implementation-suite results are recorded at the top of this document; neither
+run constitutes hardware acceptance.
 Before hardware comparison add sanitized start/end attempt + accepted/status +
 duration/blob-present/context-present fields; never log the values themselves.
 Compare a fresh track from zero, a mid-track handoff, pause/resume and natural end.
@@ -253,18 +306,22 @@ using the user's linked account and confirmation; do not fabricate test reports.
 
 ## Image, rollback and ordered hardware comparison
 
-No deployable direct-DLNA transport image is claimed by this design/probe branch.
-Build it only after the adaptations/final-send safety tests exist, labelled with
-its exact experiment commit, as `raumfeld-connect:direct-dlna-one-room-review`.
-No registry publication or production config update is part of source review.
+Build the candidate only after the adaptations/final-send safety tests pass:
+`docker build --build-arg PLAYBACK_PATH=direct_dlna --label
+org.opencontainers.image.revision=<exact-experiment-commit> -t
+raumfeld-connect:direct-dlna-one-room-review .`. Record the exact image digest and
+revision separately after build/smoke checks. No registry publication or production
+configuration update is part of source/image preparation.
 
 Before requesting deployment approval, retain the actual current runtime image
 and full private configuration/rollback image; preserve `/data`, credentials, LAN
 assignment, automatic discovery, host networking, pull policy and all other apps.
 The working-branch WIP is not the deployed rollback. The proposed deployment delta
-is this app's image plus the explicit `PLAYBACK_PATH=direct_dlna` mode flag; retain
-all existing settings and the already selected one-room/CD configuration. Do not
-replace credential/config stores or modify another service.
+is this app's image only; the candidate embeds `PLAYBACK_PATH=direct_dlna`, while
+the retained rollback image uses the original guarded path. Verify that existing
+runtime environment does not override this flag. Retain all existing settings
+and the already selected one-room/CD configuration. Do not replace credential/
+config stores or modify another service.
 Rollback restores the prior runtime image and private configuration, with no
 speaker Stop, regrouping, volume restoration or uncertain mutation retry.
 

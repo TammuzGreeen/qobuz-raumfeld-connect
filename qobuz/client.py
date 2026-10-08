@@ -1,4 +1,4 @@
-"""Only this client reaches Node; no direct UPnP access from Python."""
+"""Authenticated Node topology/control client; direct mode uses DLNA separately."""
 import aiohttp
 import time
 
@@ -45,3 +45,6 @@ class RaumfeldClient:
 
     async def control(self, room_id, action, **kwargs):
         return await self.request("/v1/control", {"roomId": room_id, "action": action, **kwargs})
+
+    async def binding(self, room_id, action, **kwargs):
+        return await self.request('/v1/binding', {'roomId': room_id, 'action': action, **kwargs})

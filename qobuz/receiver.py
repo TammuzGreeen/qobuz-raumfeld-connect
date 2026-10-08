@@ -15,7 +15,7 @@ from qobuz_proxy.playback.state_reporter import wire_playing_state
 from qobuz_proxy.playback import QueueHandler, PlaybackCommandHandler, VolumeCommandHandler
 from .backend import AudioRelay, RaumfeldBackend
 from .player import RaumfeldPlayer
-from .diagnostics import PlaybackTimeline, ObservedMetadata
+from .diagnostics import PlaybackTimeline, ObservedMetadata, ObservedReportingAPI
 
 
 class LanDiscovery(DiscoveryService):
@@ -51,10 +51,18 @@ class LanDiscovery(DiscoveryService):
             return web.json_response({'error': 'connect_request_failed'}, status=503)
 
 
+class DirectVolumeHandler(VolumeCommandHandler):
+    async def _handle_volume_changed(self, message):
+        # Controller/server echoes are not explicit volume writes. Hardware
+        # readback is authoritative; never echo a knob report into SetVolume.
+        return
+
+
 class Receiver:
-    def __init__(self, room, client, api, address, quality):
+    def __init__(self, room, client, api, address, quality, playback_path='guarded'):
         self.room, self.client, self.api = room, client, api
         self.quality = quality
+        self.playback_path = playback_path
         self.config = Config(
             device=DeviceConfig(name=room['name'], uuid=str(uuid.uuid5(uuid.NAMESPACE_URL, 'raumfeld:' + room['id']))),
             qobuz=QobuzConfig(max_quality=quality),
@@ -77,7 +85,7 @@ class Receiver:
 
     def diagnostics(self):
         token = self.ws._ws_token if self.ws else None
-        return {'stage': self.selection_stage, 'error': self.selection_error,
+        return {'stage': self.selection_stage, 'error': self.selection_error, 'playbackPath': self.playback_path,
                 'sessionPresent': bool(self.discovery.get_received_tokens()),
                 'cloudConnected': bool(self.ws and self.ws.is_connected),
                 'cloudActive': bool(self.ws and self.ws.is_renderer_active),
@@ -148,14 +156,18 @@ class Receiver:
             self.message_counts = {}
             self.protocol_error = None
             try:
-                backend = RaumfeldBackend(self.client, self.room['id'], self.room['name'], self.relay)
+                backend_type = RaumfeldBackend
+                if self.playback_path == 'direct_dlna':
+                    from .dlna_backend import RaumfeldDLNABackend
+                    backend_type = RaumfeldDLNABackend
+                backend = backend_type(self.client, self.room['id'], self.room['name'], self.relay)
                 self.backend = backend
                 await backend.select(key)
                 self.selection_stage = 'wiring_player'
                 queue = QobuzQueue()
                 metadata = ObservedMetadata(api_client=self.api, max_quality=self.quality, timeline=self.timeline)
                 player = RaumfeldPlayer(queue=queue, metadata_service=metadata, backend=backend,
-                                     play_reporter=PlayReporter(self.api))
+                                     play_reporter=PlayReporter(ObservedReportingAPI(self.api, self.timeline)))
                 ws = WsManager(config=self.config)
                 self.player, self.ws = player, ws
                 async def external():
@@ -179,7 +191,8 @@ class Receiver:
                 self.handler = handler
                 ws.on_connected(handler.note_connected)
                 ws.on_disconnected(handler.note_disconnected)
-                volume = VolumeCommandHandler(player)
+                volume = (DirectVolumeHandler if self.playback_path == 'direct_dlna'
+                          else VolumeCommandHandler)(player)
                 player.set_next_track_callbacks(handler.get_next_track_info, handler.clear_next_track_info)
                 player.set_next_track_request_callback(ws.request_next_track)
                 handler.set_on_next_track_changed(player.on_next_track_info_changed)
@@ -199,6 +212,11 @@ class Receiver:
                 self.reporter = StateReporter(player=player, queue=queue, send_callback=report)
                 player.set_state_reporter(self.reporter)
                 player.set_volume_report_callback(ws.send_volume_changed)
+                if self.playback_path == 'direct_dlna':
+                    async def volume_observed(value):
+                        player._volume = value
+                        await player._report_volume_change()
+                    backend.on_volume = volume_observed
                 player.set_file_quality_report_callback(ws.send_file_audio_quality_changed)
                 self.discovery.set_session(tokens)
                 self.selection_stage = 'starting_player'

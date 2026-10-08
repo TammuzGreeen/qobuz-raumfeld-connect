@@ -105,12 +105,13 @@ class ReportingPathTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(await self.player._start_playback(0))
         self.assertEqual(len(self.received), 1)
         self.assertIsNotNone(self.reporter._active)
-        # Existing diagnostics omit this warning; account-visible reporting is
-        # not proven by login, SOAP or player success.
+        # The experiment now exposes a sanitized rejection; account-visible
+        # reporting is still not proven by login, SOAP or player success.
         diagnostics = ConnectDiagnostics()
         diagnostics.handle(logging.LogRecord('test', logging.WARNING, '', 0,
             'Streaming report (start) failed: HTTP 403 — synthetic-response', (), None))
-        self.assertEqual(diagnostics.snapshot(), [])
+        self.assertEqual(diagnostics.snapshot()[-1]['event'], 'streaming_report_start_rejected')
+        self.assertEqual(diagnostics.snapshot()[-1]['code'], 403)
 
 
 class StockBackendLimitTests(unittest.IsolatedAsyncioTestCase):

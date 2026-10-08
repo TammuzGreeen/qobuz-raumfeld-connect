@@ -10,7 +10,7 @@ function authenticated(header, token) {
   return given.length === expected.length && timingSafeEqual(given, expected);
 }
 
-function createApi(store, {token, controller = null}) {
+function createApi(store, {token, controller = null, binding = null}) {
   if (!token || token.length < 32) throw new Error('API_TOKEN must contain at least 32 characters');
   const server = http.createServer(async (req, res) => {
     const send = (status, body) => {
@@ -24,7 +24,7 @@ function createApi(store, {token, controller = null}) {
       return send(ready ? 200 : 503, {ready});
     }
     if (req.method === 'GET' && req.url === '/v1/state') return send(200, controller ? controller.decorate(store.snapshot()) : store.snapshot());
-    if (req.method === 'POST' && ['/v1/arbitration/evaluate', '/v1/control'].includes(req.url)) {
+    if (req.method === 'POST' && ['/v1/arbitration/evaluate', '/v1/control', '/v1/binding'].includes(req.url)) {
       if (req.headers['content-type']?.split(';')[0] !== 'application/json') return send(415, {error: 'json_required'});
       let size = 0, chunks = [];
       try {
@@ -34,6 +34,18 @@ function createApi(store, {token, controller = null}) {
           chunks.push(chunk);
         }
         const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        if (req.url === '/v1/binding') {
+          if (!binding) return send(503, {error: 'binding_disabled'});
+          if (!body || Array.isArray(body) || typeof body.roomId !== 'string' || !body.roomId.length ||
+              body.roomId.length > 256 ||
+              !['select','release','lookup','prepare','load','loaded_play','guard'].includes(body.action) ||
+              Object.keys(body).some(k => !['roomId','action','selectionId','token'].includes(k)) ||
+              (body.action !== 'select' && (typeof body.token !== 'string' || body.token.length !== 64))) {
+            return send(400, {error: 'invalid_request'});
+          }
+          try { return send(200, {apiVersion: '1', ...await binding.dispatch(body)}); }
+          catch (error) { return send(error.status || 503, {error: error.status ? error.message : 'binding_unavailable'}); }
+        }
         if (req.url === '/v1/control') {
           if (!controller) return send(503, {error: 'control_disabled'});
           if (!body || Array.isArray(body) || typeof body.roomId !== 'string' || body.roomId.length > 256 ||
