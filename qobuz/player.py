@@ -41,3 +41,15 @@ class RaumfeldPlayer(QobuzPlayer):
             self._set_position(position)
             await self._send_state_update()
             return True
+
+    async def _start_playback(self, start_position_ms=0):
+        # Natural advancement calls this public-to-the-player path without
+        # _play_locked. Correlate it without changing upstream track logic.
+        timeline = self.backend.relay.timeline
+        if not timeline or timeline.attempt.get():
+            return await super()._start_playback(start_position_ms)
+        token = timeline.begin()
+        try:
+            return await super()._start_playback(start_position_ms)
+        finally:
+            timeline.attempt.reset(token)

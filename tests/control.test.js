@@ -299,6 +299,76 @@ test('Seek 710 cannot preserve a lease revoked concurrently by Spotify',async()=
   assert.equal(loss(s).reason,'unexpected_source_uri');
 });
 const forwardingURI = 'http://192.0.2.1:55001/zone-1/room-1/physical-1/audio.flac?punch=1';
+test('next-track load waits for fresh matching virtual evidence on the same lease',async()=>{
+  const s=setup();const {token}=await s.select();await s.play(token);
+  const first='http://192.0.2.2:8790/audio/'+'a'.repeat(32);
+  const next='http://192.0.2.2:8790/audio/'+'b'.repeat(32);
+  let loaded=false,rounds=0;
+  const load=s.device.setAvTransportUri,poll=s.observer.poll;
+  s.device.setAvTransportUri=async(...args)=>{await load(...args);loaded=true;};
+  s.observer.poll=async()=>{
+    if(!loaded)return poll();
+    rounds++;
+    assert.equal(s.controller.decorate(s.store.snapshot()).rooms[0].owned,false);
+    s.store.observe('physical-1',{AVTransportURI:forwardingURI,CurrentTransportState:'PLAYING'});
+    s.store.observe('zone-1',{AVTransportURI:rounds<3?first:next,CurrentTransportState:'PLAYING'});
+  };
+  await s.command(token,'play',{url:next,metadata:{title:'Next & Test'}});
+  assert.equal(rounds,3);
+  assert.equal(loss(s),null);
+  assert.equal(s.controller.leases.get('room-1').token,token);
+  assert.deepEqual(s.calls,['load','play','load','play']);
+});
+test('next-track load missing new virtual evidence expires without Play or reclaim',async()=>{
+  const s=setup({handoffMs:15});const {token}=await s.select();await s.play(token);
+  const previous='http://192.0.2.2:8790/audio/'+'a'.repeat(32),next='http://192.0.2.2:8790/audio/'+'b'.repeat(32);
+  const load=s.device.setAvTransportUri,poll=s.observer.poll;let loaded=false;
+  s.device.setAvTransportUri=async(...args)=>{await load(...args);loaded=true;};
+  s.observer.poll=async()=>{
+    if(!loaded)return poll();
+    s.store.observe('physical-1',{AVTransportURI:forwardingURI,CurrentTransportState:'PLAYING'});
+    s.store.observe('zone-1',{AVTransportURI:previous,CurrentTransportState:'PLAYING'});
+  };
+  await assert.rejects(s.command(token,'play',{url:next,metadata:{title:'Next & Test'}}),/source_not_confirmed/);
+  assert.deepEqual(s.calls,['load','play','load']);assert.equal(s.controller.leases.size,0);
+  await assert.rejects(s.select(),/selection_already_used/);
+});
+test('next-track load rejects even the original selected Spotify URI, competitors and topology loss',async()=>{
+  for(const invalidate of [
+    s=>s.store.emit('source','physical-1','spotify://playback'),
+    s=>s.native(),
+    s=>s.store.emit('source','zone-1','https://example.test/competitor'),
+    s=>{s.store.rooms[0].zoneId='different-zone';s.store.emit('topology');},
+  ]){
+    const s=setup();const {token}=await s.select();await s.play(token);
+    const load=s.device.setAvTransportUri;
+    s.device.setAvTransportUri=async(...args)=>{await load(...args);invalidate(s);};
+    await assert.rejects(s.command(token,'play',{url:'http://192.0.2.2:8790/audio/'+'b'.repeat(32),metadata:{title:'Next & Test'}}),/ownership_lost/);
+    assert.deepEqual(s.calls,['load','play','load']);assert.equal(s.controller.leases.size,0);
+  }
+});
+test('next-track forwarding notification may be incomplete but explicit release remains terminal',async()=>{
+  for(const release of [false,true]){
+    const s=setup();const {token}=await s.select();await s.play(token);
+    const load=s.device.setAvTransportUri;
+    s.device.setAvTransportUri=async(...args)=>{
+      await load(...args);
+      s.store.observe('zone-1',{AVTransportURI:'',CurrentTransportState:'STOPPED'},{refresh:false});
+      s.store.emit('source','physical-1',forwardingURI);
+      assert.equal(s.controller.decorate(s.store.snapshot()).rooms[0].owned,false);
+      if(release)await s.command(token,'release');
+    };
+    const pending=s.command(token,'play',{url:'http://192.0.2.2:8790/audio/'+'b'.repeat(32),metadata:{title:'Next & Test'}});
+    if(release){
+      await assert.rejects(pending,/ownership_lost/);
+      await s.observer.poll();assert.equal(s.controller.leases.size,0);
+      assert.deepEqual(s.calls,['load','play','load']);
+    }else{
+      await pending;assert.deepEqual(s.calls,['load','play','load','play']);
+      assert.equal(s.controller.leases.get('room-1').token,token);
+    }
+  }
+});
 test('handoff observation ordering confirms ownership only after both sources match',async()=>{
   // Both orders provide the same fresh, topology-linked forwarding and relay.
   for (const physicalFirst of [true,false]) {

@@ -41,3 +41,19 @@ validation, isolated supervisor failure, imports, real discovery initialization
 and graceful shutdown. No candidate deployment or real-speaker mutation was run
 for this fix. Audible playback, repeated hardware handoffs, volume, manual next,
 natural completion and Spotify takeover still require the ordered hardware review.
+
+## Architecture-review checkpoint (next-track work paused)
+
+The deployed handoff-order candidate subsequently produced user-confirmed audible
+playback and retained control on initial selection. At natural advancement, the
+next URI load was acknowledged and its relay returned HTTP 200 FLAC with bytes
+written, but source confirmation failed before Play and ownership was released.
+Reconnect was rejected as a replay. This is not a successful track-completion test.
+
+Pending same-lease bounded-load changes and natural-advance trace correlation are
+preserved here for comparison, not hardware acceptance or deployment. Latest local
+Node run: 82/83 passed; the old-callback expiry test rejected safely with
+`ownership_lost` rather than its expected `source_not_confirmed`. These changes
+remain work in progress. No new Python/image/hardware acceptance is claimed.
+Further custom-controller expansion is paused for direct-DLNA architecture review.
+The deployed image remains the previously approved handoff-order candidate.

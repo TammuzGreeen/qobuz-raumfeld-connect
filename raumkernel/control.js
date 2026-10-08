@@ -110,12 +110,13 @@ class Controller {
       const unexpected = values.filter(Boolean).find(value => {
         if (lease.expected.has(value)) return false;
         // Only the initial explicit transition may see the source being replaced.
-        if ((lease.pending || lease.transition) && lease.baseline.get(id)?.includes(value)) return false;
+        if (lease.pending && lease.baseline.get(id)?.includes(value)) return false;
         if (this.physicalForwarding(roomId, lease, id, value)) return false;
         // A structurally exact forwarding notification is incomplete, not owned.
-        // Only the explicit initial load may await new virtual evidence, within
-        // the existing handoff deadline. Competing URIs still revoke immediately.
-        if (lease.pending && lease.transition && performance.now() < lease.handoffUntil &&
+        // Initial selection or a freshly verified same-lease track load may
+        // await new virtual evidence within the existing handoff deadline.
+        // Only pending initial selection can tolerate selected Spotify baseline.
+        if (lease.transition && lease.loadingEvidence && performance.now() < lease.handoffUntil &&
             this.forwardingShape(roomId, lease, id, value)) return false;
         // Physical renderers can expose an internal transport URI while their
         // virtual renderer owns playback. Accept only their observed baseline,
@@ -147,7 +148,7 @@ class Controller {
       room.grouped = !!this.grouped(room);
       room.transitioning = !!lease && lease.transition && lease.expires > this.now();
       room.controllable = room.enabled && !this.grouped(room) && room.fresh;
-      room.owned = !!lease && lease.expires > this.now() && !lease.pending && room.fresh;
+      room.owned = !!lease && lease.expires > this.now() && !lease.pending && !lease.transition && room.fresh;
       room.lastOwnershipLoss = this.ownershipLosses.has(room.id) ? {...this.ownershipLosses.get(room.id)} : null;
       room.lastVolumeCommand = this.volumeCommands.has(room.id) ? {...this.volumeCommands.get(room.id)} : null;
       room.lastPlaybackEvidence = this.playbackCommands.has(room.id) ? {...this.playbackCommands.get(room.id)} : null;
@@ -224,7 +225,7 @@ class Controller {
       fail('command_failed_or_timed_out');
     }
   }
-  volumeEvidence(id, token, lease) {
+  ownedSourceEvidence(id, token, lease) {
     if (this.current(id, token) !== lease || lease.pending || lease.transition) fail('ownership_lost');
     const room = this.room(id), snapshot = this.store.snapshot();
     if (room.zoneId !== lease.target || signature(room) !== lease.signature) fail('ownership_lost');
@@ -237,7 +238,7 @@ class Controller {
     }
   }
   async volume(id, token, device, lease, value) {
-    this.volumeEvidence(id, token, lease);
+    this.ownedSourceEvidence(id, token, lease);
     // A cloud echo or queued slider event must not repeat an uncertain write.
     // Only a genuinely fresh selected lease can clear this write barrier.
     if (lease.volumeUncertain) return {accepted: false, applied: null,
@@ -268,7 +269,7 @@ class Controller {
     const observationStart = this.now();
     try {
       await this.refresh(id, token);
-      this.volumeEvidence(id, token, lease);
+      this.ownedSourceEvidence(id, token, lease);
       const snapshot = this.store.snapshot();
       for (const rendererId of lease.ids) {
         if ((this.store.completeReads.get(rendererId) || 0) <= before.get(rendererId) ||
@@ -284,7 +285,7 @@ class Controller {
         diagnostic.readback = 'success';
       } catch { diagnostic.readback = 'failed'; }
       diagnostic.readbackElapsedMs = Math.round(performance.now() - readStart);
-      this.volumeEvidence(id, token, lease);
+      this.ownedSourceEvidence(id, token, lease);
     } catch {
       diagnostic.ownership = 'unavailable';
       diagnostic.outcome = 'failed_closed';
@@ -312,11 +313,11 @@ class Controller {
       const lease = this.current(roomId, token);
       // Pending selection expires on its original deadline, even with heartbeats.
       if (!lease.pending) lease.expires = this.now() + this.leaseMs;
-      return {owned: !lease.pending, expiresAt: lease.expires};
+      return {owned: !lease.pending && !lease.transition, expiresAt: lease.expires};
     }
     const job = this.queue.then(() => this.execute(request)).catch(error => {
       const lease = this.leases.get(roomId);
-      if (action === 'play' && lease?.token === token && lease.pending &&
+      if (action === 'play' && lease?.token === token &&
           lease.transition && lease.loadingEvidence) this.revoke(roomId, 'room_guard_failed');
       throw error;
     });
@@ -360,6 +361,12 @@ class Controller {
     const device = this.observer.devices.get(lease.target)?.device;
     if (!device) { this.revoke(id, 'renderer_unavailable'); fail('renderer_unavailable'); }
     if (action === 'play') {
+      // Advancement/reload is allowed only while this exact lease still has
+      // fresh Qobuz source evidence. It is not a new takeover permission.
+      if (!lease.pending) {
+        this.ownedSourceEvidence(id, token, lease);
+        lease.transition = true;
+      }
       lease.loadingEvidence = {at: this.now(), load: 'not_sent', play: 'not_sent', sourceConfirmed: false};
       this.playbackCommands.set(id, lease.loadingEvidence);
       while (this.playbackCommands.size > 50) this.playbackCommands.delete(this.playbackCommands.keys().next().value);
@@ -373,12 +380,12 @@ class Controller {
       const didl = `<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/"><item id="qobuz" parentID="0" restricted="1"><dc:title>${title}</dc:title><upnp:artist>${artist}</upnp:artist><upnp:album>${album}</upnp:album><upnp:class>object.item.audioItem.musicTrack</upnp:class><res protocolInfo="http-get:*:${mime}:*">${escapeXml(url)}</res></item></DIDL-Lite>`;
       await this.action(id, token, device, 'setAvTransportUri', url, didl, false);
       // Loading can return before the virtual URI and physical source settle.
-      // Confirm both within the same bounded initial handoff, before Play.
+      // Confirm both within the bounded load window, before Play.
       await this.refresh(id, token);
       this.room(id);
-      // Only the first explicit Play may wait for the selected Spotify source
-      // to relinquish. sourceChanged still rejects new source/session evidence,
-      // and each poll rechecks freshness, membership and the original deadline.
+      // Only initial selection may wait for its selected Spotify baseline.
+      // Same-lease advancement waits for fresh matching relay/forwarding state,
+      // never for a competing source to depart.
       const deadlineAt = lease.handoffUntil;
       for (;;) {
         const targetRaw = this.store.raw.get(lease.target) || {};
@@ -393,7 +400,7 @@ class Controller {
             (classify({AVTransportURI:uri}) !== 'spotify' && lease.baseline.get(renderer)?.includes(uri)));
         });
         if (targetConfirmed && physicalConfirmed && !physical && performance.now() < deadlineAt) break;
-        if (!lease.pending || !lease.transition || performance.now() >= deadlineAt) {
+        if (!lease.transition || performance.now() >= deadlineAt) {
           if (!targetConfirmed || !physical) {
             this.revoke(id, 'source_not_confirmed', lease.target); fail('source_not_confirmed');
           }
