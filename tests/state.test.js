@@ -97,3 +97,46 @@ test('snapshots redact media URLs and do not expose mutable internal arrays', as
   state.rooms[0].rendererIds.length = 0;
   assert.equal(store.snapshot().rooms[0].rendererIds.length, 1);
 });
+
+test('freshness reasons distinguish physical, virtual and topology failure', async () => {
+  const {store, advance} = await ready();
+  store.removed('uuid:physical-1');
+  assert.deepEqual(store.snapshot().rooms[0].unavailableReasons, ['physical_observation_missing']);
+  store.removed('uuid:zone-1');
+  assert.deepEqual(store.snapshot().rooms[0].unavailableReasons,
+    ['physical_observation_missing', 'virtual_observation_missing']);
+  advance(30001);
+  assert.ok(store.snapshot().rooms[0].unavailableReasons.includes('topology_stale'));
+  store.hostLost();
+  assert.ok(store.snapshot().rooms[0].unavailableReasons.includes('host_unavailable'));
+});
+
+test('event-only evidence is never fresh, even close to the timestamp epoch', async () => {
+  const store = new StateStore({now: () => 1000});
+  store.hostFound('192.0.2.1');
+  store.topology(await parseStringPromise(fixture));
+  store.observe('uuid:physical-3', {AVTransportURI: 'spotify://event'}, {refresh: false});
+  assert.equal(store.snapshot().rooms[2].fresh, false);
+  assert.equal(store.snapshot().rooms[2].source, 'spotify');
+  assert.deepEqual(store.snapshot().rooms[2].unavailableReasons, ['physical_observation_missing']);
+});
+
+test('observation diagnostics are bounded, copied, cleared on complete reads and schema-valid', async () => {
+  const {store} = await ready();
+  store.observationFailed('uuid:physical-3', {message: 'private URI', code: 'private code', observationAction: 'private action'});
+  let snapshot = store.snapshot();
+  assert.equal(snapshot.observationErrors[0].code, 'observation_failed_or_timed_out');
+  assert.equal(snapshot.observationErrors[0].action, 'Observation');
+  assert.equal(JSON.stringify(snapshot).includes('private'), false);
+  const validate = new Ajv().compile(schema);
+  assert.ok(validate(snapshot), JSON.stringify(validate.errors));
+  snapshot.observationErrors[0].code = 'modified';
+  assert.notEqual(store.snapshot().observationErrors[0].code, 'modified');
+  store.observe('uuid:physical-3', {AVTransportURI: 'spotify://event'}, {refresh: false});
+  assert.equal(store.snapshot().observationErrors.length, 1);
+  store.observe('uuid:physical-3', {AVTransportURI: 'spotify://read'});
+  assert.equal(store.snapshot().observationErrors.length, 0);
+  store.observationFailed('uuid:physical-3', {code: 'ECONNRESET'});
+  store.hostLost();
+  assert.equal(store.snapshot().observationErrors.length, 0);
+});

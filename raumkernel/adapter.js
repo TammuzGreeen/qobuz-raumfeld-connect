@@ -1,12 +1,57 @@
 'use strict';
 
-const {parseStringPromise} = require('xml2js');
+const {parseStringPromise, processors} = require('xml2js');
 
-function deadline(promise, ms) {
+function deadline(promise, ms, timeoutError = new Error('Observation timeout')) {
   let timer;
   return Promise.race([promise, new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error('Observation timeout')), ms);
+    timer = setTimeout(() => reject(timeoutError), ms);
   })]).finally(() => clearTimeout(timer));
+}
+
+async function readAction(device, action) {
+  try { return await device.callAction('AVTransport', action, {InstanceID: 0}); }
+  catch (error) { throw Object.assign(new Error('Observation failed'), {code: error?.code, observationAction: action}); }
+}
+
+async function sourceInfo(device, fetchImpl, timeoutMs) {
+  try {
+    const media = await device.callAction('AVTransport', 'GetMediaInfo', {InstanceID: 0});
+    if (typeof media?.CurrentURI !== 'string') throw new Error('Missing source URI');
+    return {AVTransportURI: media.CurrentURI};
+  } catch (error) {
+    // Raumfeld physical renderers do not implement GetMediaInfo. Their position
+    // response also omits TrackURI. Never substitute cached event data: query a
+    // new complete LastChange snapshot through the read-only UPnP control API.
+    if (error?.code !== 'ENOACTION') {
+      throw Object.assign(new Error('Source observation failed'), {code: error?.code, observationAction: 'GetMediaInfo'});
+    }
+  }
+  try {
+    const service = Object.values(device.upnpClient?.deviceDescription?.services || {})
+      .find(s => /^urn:schemas-upnp-org:service:AVTransport:\d+$/.test(s.serviceType));
+    if (!service?.controlURL) throw new Error('Missing AVTransport control URL');
+    const response = await fetchImpl(service.controlURL, {
+      method: 'POST', signal: AbortSignal.timeout(timeoutMs),
+      headers: {'Content-Type': 'text/xml; charset="utf-8"',
+        SOAPACTION: '"urn:schemas-upnp-org:control-1-0#QueryStateVariable"'},
+      body: '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><u:QueryStateVariable xmlns:u="urn:schemas-upnp-org:control-1-0"><varName>LastChange</varName></u:QueryStateVariable></s:Body></s:Envelope>',
+    });
+    if (!response.ok) throw new Error('LastChange unavailable');
+    const options = {tagNameProcessors: [processors.stripPrefix]};
+    const soap = await parseStringPromise(await response.text(), options);
+    const eventText = soap?.Envelope?.Body?.[0]?.QueryStateVariableResponse?.[0]?.LastChange?.[0];
+    if (typeof eventText !== 'string') throw new Error('Missing LastChange');
+    const event = await parseStringPromise(eventText, options);
+    const instances = event?.Event?.InstanceID;
+    const matches = Array.isArray(instances) ? instances.filter(i => i.$?.val === '0') : [];
+    const instance = matches.length === 1 ? matches[0] : null;
+    const uri = instance?.AVTransportURI?.[0]?.$?.val;
+    if (typeof uri !== 'string' || instance.AVTransportURI.length !== 1) throw new Error('Missing source URI');
+    return {AVTransportURI: uri};
+  } catch (error) {
+    throw Object.assign(new Error('Source observation failed'), {code: error?.code, observationAction: 'QueryLastChange'});
+  }
 }
 
 // Only read actions are exposed here. Neither repair nor renderer creation is
@@ -62,9 +107,7 @@ class RaumkernelObserver {
       entry.version++;
       const {classify} = require('./state');
       if (classify(state) === 'spotify') {
-        const previous = this.store.renderers.get(device.udn());
-        this.store.observe(device.udn(), state);
-        this.store.renderers.get(device.udn()).observedAt = previous?.observedAt ?? 0;
+        this.store.observe(device.udn(), state, {refresh: false});
       }
     });
     this.on('rendererStateKeyValueChanged', (device, key, oldValue, value) => {
@@ -98,18 +141,22 @@ class RaumkernelObserver {
         await Promise.all(entries.slice(index, index + 4).map(async ([id, entry]) => {
           const version = entry.version;
           try {
-            const [media, transport, position] = await deadline(Promise.all([
-              entry.device.callAction('AVTransport', 'GetMediaInfo', {}),
-              entry.device.getTransportInfo(), entry.device.getPositionInfo(),
+            const [source, transport, position] = await deadline(Promise.all([
+              sourceInfo(entry.device, this.fetch, this.timeoutMs),
+              readAction(entry.device, 'GetTransportInfo'), readAction(entry.device, 'GetPositionInfo'),
             ]), this.timeoutMs);
             if (!valid() || this.devices.get(id) !== entry || entry.version !== version) return;
             let volume = null;
             try { volume = await deadline(entry.device.getVolume(), this.timeoutMs); } catch {}
             if (!valid() || this.devices.get(id) !== entry || entry.version !== version) return;
-            this.store.observe(id, {AVTransportURI: media.CurrentURI,
+            this.store.observe(id, {...source,
               TrackURI: position.TrackURI, CurrentTransportState: transport.CurrentTransportState,
               RelTime: position.RelTime, TrackDuration: position.TrackDuration, Volume: volume});
-          } catch { /* Failed observations never refresh cached state. */ }
+          } catch (error) {
+            // Diagnostics contain only bounded codes, never upstream messages,
+            // names, transport URLs, or SOAP response bodies.
+            if (valid() && this.devices.get(id) === entry) this.store.observationFailed(id, error);
+          }
         }));
         if (!valid()) return;
       }
@@ -128,4 +175,4 @@ class RaumkernelObserver {
   }
 }
 
-module.exports = {RaumkernelObserver, deadline};
+module.exports = {RaumkernelObserver, deadline, sourceInfo};

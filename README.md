@@ -117,6 +117,12 @@ If rooms are missing, check host networking, firewall, `LAN_ADDRESS` and optiona
 is unreachable. If authentication is rejected, sign in again. Credentials, signed
 stream URLs and detailed upstream account logs are not exposed in setup status.
 
+Source labels such as Spotify do not make a room unavailable. Advertisement
+requires fresh physical/zone renderer observations and single-room topology.
+Setup explains observation and receiver startup failures. `LAN_ADDRESS` must be
+assigned to the Docker host, not to a speaker or another machine. See the
+[speaker availability diagnostic and review deployment guide](SPEAKER_AVAILABILITY.md).
+
 ## Development and CI
 
 Node 24, Python 3.12–3.13, uv 0.8.22:

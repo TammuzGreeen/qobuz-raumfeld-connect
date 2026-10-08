@@ -10,6 +10,10 @@ from qobuz_proxy.backends.types import BackendInfo, PlaybackState
 from .client import OwnershipLost
 
 
+class SeekUnsupported(Exception):
+    """A definite renderer rejection, not loss of playback ownership."""
+
+
 class AudioRelay:
     def __init__(self, app, address, port):
         self.address, self.port = address, port
@@ -58,6 +62,8 @@ class RaumfeldBackend(AudioBackend):
         self.started = False
         self.last_playing = False
         self.stopped_polls = 0
+        self.last_playback_command = None
+        self.last_control_error = None
 
     async def select(self, selection_id):
         await self.release()
@@ -74,9 +80,30 @@ class RaumfeldBackend(AudioBackend):
     async def command(self, action, **kwargs):
         if not self.token:
             raise OwnershipLost('Fresh selection required')
+        command_record = None
         try:
-            return await self.client.control(self.room_id, action, token=self.token, **kwargs)
-        except Exception:
+            if action != 'heartbeat':
+                command_record = {'action': action, 'result': 'pending'}
+                self.last_playback_command = command_record
+            result = await self.client.control(self.room_id, action, token=self.token, **kwargs)
+            if (action == 'seek' and result.get('accepted') is False
+                    and result.get('applied') is False and result.get('error') == 'seek_mode_not_supported'
+                    and result.get('upnpErrorCode') == 710):
+                command_record['result'] = 'unsupported'
+                self.last_control_error = 'seek_mode_not_supported'
+                return result
+            if action != 'heartbeat':
+                command_record['result'] = 'completed'
+                self.last_control_error = None
+            return result
+        except Exception as error:
+            known = {'ownership_lost', 'room_not_enabled', 'room_not_found', 'grouped_room_not_supported',
+                     'state_unavailable', 'room_membership_changed', 'observation_busy', 'play_required',
+                     'command_failed_or_timed_out', 'zone_unavailable', 'renderer_unavailable',
+                     'source_not_confirmed', 'spotify_still_active', 'invalid_stream', 'unsupported_api'}
+            self.last_control_error = str(error) if str(error) in known else 'control_request_failed'
+            if action != 'heartbeat':
+                command_record['result'] = 'failed'
             await self.external()
             raise
 
@@ -167,7 +194,26 @@ class RaumfeldBackend(AudioBackend):
         self._notify_state_change(PlaybackState.STOPPED)
 
     async def seek(self, position_ms):
-        await self.command('seek', value=int(position_ms))
+        result = await self.command('seek', value=int(position_ms))
+        if result.get('error') == 'seek_mode_not_supported':
+            raise SeekUnsupported('Renderer rejected seek mode')
+
+    async def observed_position(self):
+        # Used after a rejected initial seek: report fresh renderer evidence,
+        # never the requested phone position that was not actually applied.
+        await self.command('heartbeat')
+        state = await self.client.state()
+        room = next((r for r in state['rooms'] if r['id'] == self.room_id), None)
+        if not room or not room.get('fresh') or not room.get('owned'):
+            await self.external()
+            raise OwnershipLost('state_unavailable')
+        target = room['zoneId'] or room['rendererIds'][0]
+        self.sample = next((r for r in state['renderers'] if r['id'] == target), {})
+        position = self.sample.get('positionMs')
+        if not self.sample.get('fresh') or not isinstance(position, int) or position < 0:
+            await self.external()
+            raise OwnershipLost('state_unavailable')
+        return position
 
     async def get_position(self):
         return self.sample.get('positionMs', 0)

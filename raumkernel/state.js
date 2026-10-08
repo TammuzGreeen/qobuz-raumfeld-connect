@@ -54,6 +54,7 @@ class StateStore extends EventEmitter {
     this.renderers = new Map();
     this.revision = 0;
     this.raw = new Map();
+    this.observationErrors = new Map();
   }
   hostFound(host) {
     if (host !== this.host) this.hostLost();
@@ -65,6 +66,7 @@ class StateStore extends EventEmitter {
     this.topologyAt = null;
     this.renderers.clear();
     this.raw.clear();
+    this.observationErrors.clear();
     this.revision++;
     this.emit('lost');
   }
@@ -76,7 +78,7 @@ class StateStore extends EventEmitter {
     this.revision++;
     this.emit('topology');
   }
-  observe(id, state) {
+  observe(id, state, {refresh = true} = {}) {
     if (!this.host) return;
     const previous = this.renderers.get(id);
     const detected = classify(state);
@@ -84,22 +86,30 @@ class StateStore extends EventEmitter {
     // positive replacement source is observed. Paused Spotify remains Spotify.
     const source = detected === 'unknown' && previous?.source === 'spotify' ? 'spotify' : detected;
     this.renderers.set(id, {
-      id, source, observedAt: this.now(),
+      id, source, observedAt: refresh ? this.now() : previous?.observedAt ?? 0,
       transport: String(state.TransportState || state.CurrentTransportState || 'UNKNOWN'),
       volume: Number.isFinite(Number(state.Volume)) && state.Volume !== '' && state.Volume != null
         ? Math.max(0, Math.min(100, Number(state.Volume))) : null,
       positionMs: timeMs(state.RelTime), durationMs: timeMs(state.TrackDuration),
     });
     this.raw.set(id, {...state});
+    if (refresh) this.observationErrors.delete(id);
     this.revision++;
     this.emit('observation', id, state);
   }
-  removed(id) { this.renderers.delete(id); this.raw.delete(id); this.revision++; this.emit('removed', id); }
+  observationFailed(id, error) {
+    const actions = ['GetMediaInfo', 'GetTransportInfo', 'GetPositionInfo', 'QueryLastChange'];
+    const codes = ['ENOACTION', 'ENOSERVICE', 'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EHOSTUNREACH', 'EUPNP'];
+    this.observationErrors.set(id, {id, failedAt: this.now(),
+      action: actions.includes(error?.observationAction) ? error.observationAction : 'Observation',
+      code: codes.includes(error?.code) ? error.code : 'observation_failed_or_timed_out'});
+  }
+  removed(id) { this.renderers.delete(id); this.raw.delete(id); this.observationErrors.delete(id); this.revision++; this.emit('removed', id); }
   snapshot() {
     const at = this.now();
     const topologyFresh = !!this.host && this.topologyAt !== null && at - this.topologyAt <= this.staleMs;
     const renderers = [...this.renderers.values()].map(r => ({...r,
-      fresh: topologyFresh && at - r.observedAt <= this.staleMs}));
+      fresh: topologyFresh && r.observedAt > 0 && at - r.observedAt <= this.staleMs}));
     const byId = new Map(renderers.map(r => [r.id, r]));
     const rooms = this.rooms.map(room => {
       const ids = [...room.rendererIds, ...(room.zoneId ? [room.zoneId] : [])];
@@ -109,12 +119,23 @@ class StateStore extends EventEmitter {
         (!room.zoneId || !!byId.get(room.zoneId)?.fresh);
       const source = evidence.some(r => r?.source === 'spotify') ? 'spotify'
         : evidence.length && evidence.every(r => r?.source === 'external') ? 'external' : 'unknown';
-      return {...room, rendererIds: [...room.rendererIds], source, fresh, protected: true};
+      const unavailableReasons = [];
+      if (!this.host) unavailableReasons.push('host_unavailable');
+      else if (!topologyFresh) unavailableReasons.push('topology_stale');
+      if (!room.rendererIds.length) unavailableReasons.push('physical_renderer_missing');
+      for (const id of ids) {
+        const kind = id === room.zoneId ? 'virtual' : 'physical';
+        if (!byId.get(id)?.observedAt) unavailableReasons.push(`${kind}_observation_missing`);
+        else if (!byId.get(id).fresh && topologyFresh) unavailableReasons.push(`${kind}_observation_stale`);
+      }
+      return {...room, rendererIds: [...room.rendererIds], source, fresh, protected: true,
+        unavailableReasons: [...new Set(unavailableReasons)]};
     });
     return {apiVersion: '1', revision: this.revision, observedAt: at,
       host: this.host, topologyFresh, topologyAt: this.topologyAt,
       capabilities: {discovery: true, playback: false, qobuzConnect: false},
-      rooms, zones: this.zones.map(z => ({...z, roomIds: [...z.roomIds]})), renderers};
+      rooms, zones: this.zones.map(z => ({...z, roomIds: [...z.roomIds]})), renderers,
+      observationErrors: [...this.observationErrors.values()].map(e => ({...e}))};
   }
 }
 

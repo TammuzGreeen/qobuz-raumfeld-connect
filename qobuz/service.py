@@ -1,6 +1,7 @@
 """Setup UI, OAuth and receiver lifecycle. Credentials stay in /data."""
 import asyncio
 import contextlib
+import errno
 import hmac
 import ipaddress
 import json
@@ -11,10 +12,12 @@ import secrets
 import signal
 import time
 from aiohttp import web
+import ifaddr
 from qobuz_proxy.auth.api_client import QobuzAPIClient
 from qobuz_proxy.auth.oauth import build_oauth_url, exchange_code, OAUTH_APP_ID, OAUTH_APP_SECRET
 from .client import RaumfeldClient
 from .receiver import Receiver
+from .diagnostics import ConnectDiagnostics
 
 
 def save_json(path, data):
@@ -35,6 +38,19 @@ def load_json(path, default):
         return default
 
 
+def local_address(address):
+    """Check interfaces: kernels may permit non-local binds (ip_nonlocal_bind)."""
+    if not address:
+        return False
+    ip = ipaddress.IPv4Address(address)
+    if ip.is_unspecified or ip.is_loopback or ip.is_multicast:
+        return False
+    try:
+        return any(item.ip == address for adapter in ifaddr.get_adapters() for item in adapter.ips)
+    except OSError:
+        return False
+
+
 class Service:
     def __init__(self, client, token, data_dir='/data', address=None):
         self.client, self.token = client, token
@@ -45,6 +61,9 @@ class Service:
         self.settings = load_json(self.data_dir / 'config.json', {'rooms': [], 'quality': 6})
         self.api = None
         self.receivers = {}
+        self.receiver_errors = {}
+        self.state_error = None
+        self.connect_diagnostics = ConnectDiagnostics()
         self.nonces = {}
         self.lock = asyncio.Lock()
         self.state = {'apiVersion': '1', 'topologyFresh': False, 'rooms': [], 'renderers': []}
@@ -83,8 +102,15 @@ class Service:
 
     async def status(self, request):
         return web.json_response({'auth': self.auth_status, 'lanAddress': self.address,
+            'lanAddressLocal': local_address(self.address), 'stateError': self.state_error,
             'quality': self.settings['quality'], 'selectedRooms': [r['id'] for r in self.settings['rooms']],
             'rooms': self.state['rooms'], 'raumfeldReady': self.state['topologyFresh'],
+            'topologyAt': self.state.get('topologyAt'), 'observedAt': self.state.get('observedAt'),
+            'renderers': self.state.get('renderers', []),
+            'observationErrors': self.state.get('observationErrors', []),
+            'receiverErrors': dict(self.receiver_errors),
+            'receiverConnections': {id: receiver.diagnostics() for id, receiver in self.receivers.items()},
+            'connectEvents': self.connect_diagnostics.snapshot(),
             'advertised': list(self.receivers), 'version': '0.2.0'})
 
     async def configure(self, request):
@@ -108,6 +134,7 @@ class Service:
                 rooms.append({'id': id, 'name': known[id]['name'] + ' Qobuz ' + id[-6:], 'port': port})
             self.settings = {'rooms': rooms, 'quality': quality}
             save_json(self.data_dir / 'config.json', self.settings)
+            self.receiver_errors.clear()
             await self.stop_receivers()
         return web.json_response({'saved': True})
 
@@ -164,7 +191,10 @@ class Service:
         if not credentials.get('user_auth_token') or not credentials.get('user_id'):
             return
         api = QobuzAPIClient(OAUTH_APP_ID, OAUTH_APP_SECRET)
-        await api.__aenter__()
+        # Match upstream app.py: do not enter this client's context manager.
+        # Its persistent session omits auth and is not updated by login. With
+        # no persistent session, metadata requests use the current user token
+        # in an authenticated temporary session, including after token refresh.
         try:
             if not await api.login_with_token(credentials['user_id'], credentials['user_auth_token']):
                 self.auth_status = 'login_required'
@@ -180,30 +210,49 @@ class Service:
             self.auth_status = 'retrying_login'
             self.retry_at = time.monotonic() + 30
 
+    async def reconcile_once(self):
+        state = await self.client.state()
+        self.state = state
+        self.state_error = None
+        async with self.lock:
+            if self.api is None and time.monotonic() >= self.retry_at:
+                await self.authenticate()
+            available = {r['id'] for r in state['rooms'] if (r['fresh'] or r.get('transitioning')) and
+                         (not r['zoneId'] or next((len(z['roomIds']) for z in state['zones'] if z['id'] == r['zoneId']), 0) == 1)}
+            desired = {r['id']: r for r in self.settings['rooms'] if r['id'] in available}
+            address_ready = local_address(self.address)
+            for id in list(self.receivers):
+                if id not in desired or not address_ready:
+                    await self.receivers.pop(id).stop()
+            self.receiver_errors = {id: error for id, error in self.receiver_errors.items() if id in desired}
+            if self.api and self.address:
+                for id, room in desired.items():
+                    if not address_ready:
+                        self.receiver_errors[id] = 'lan_address_not_local'
+                        continue
+                    if id not in self.receivers:
+                        receiver = Receiver(room, self.client, self.api, self.address, self.settings['quality'])
+                        try:
+                            await receiver.start()
+                        except Exception as error:
+                            # Receiver.start cleans up on failure. Never expose
+                            # exception text, account data or upstream tracebacks.
+                            self.receiver_errors[id] = ('receiver_port_in_use' if isinstance(error, OSError)
+                                and error.errno == errno.EADDRINUSE else 'receiver_start_failed')
+                            continue
+                        self.receivers[id] = receiver
+                        self.receiver_errors.pop(id, None)
+
     async def reconcile(self):
         while not self.closed.is_set():
             try:
-                state = await self.client.state()
-                self.state = state
-                async with self.lock:
-                    if self.api is None and time.monotonic() >= self.retry_at:
-                        await self.authenticate()
-                    available = {r['id'] for r in state['rooms'] if (r['fresh'] or r.get('transitioning')) and
-                                 (not r['zoneId'] or next((len(z['roomIds']) for z in state['zones'] if z['id'] == r['zoneId']), 0) == 1)}
-                    desired = {r['id']: r for r in self.settings['rooms'] if r['id'] in available}
-                    for id in list(self.receivers):
-                        if id not in desired:
-                            await self.receivers.pop(id).stop()
-                    if self.api and self.address:
-                        for id, room in desired.items():
-                            if id not in self.receivers:
-                                receiver = Receiver(room, self.client, self.api, self.address, self.settings['quality'])
-                                await receiver.start()
-                                self.receivers[id] = receiver
+                await self.reconcile_once()
             except asyncio.CancelledError:
                 raise
             except Exception:
-                self.state = {**self.state, 'topologyFresh': False}
+                self.state_error = 'control_state_unavailable'
+                self.state = {**self.state, 'topologyFresh': False, 'rooms': [
+                    {**r, 'fresh': False} for r in self.state['rooms']]}
                 async with self.lock:
                     await self.stop_receivers()
             try:
@@ -236,7 +285,9 @@ def main():
     if len(token) < 32:
         raise ValueError('API_TOKEN must contain at least 32 characters')
     client = RaumfeldClient(os.environ.get('RAUMFELD_API', 'http://127.0.0.1:8787'), token)
-    asyncio.run(Service(client, token, os.environ.get('DATA_DIR', '/data'), os.environ.get('LAN_ADDRESS')).run())
+    service = Service(client, token, os.environ.get('DATA_DIR', '/data'), os.environ.get('LAN_ADDRESS'))
+    service.connect_diagnostics.install()
+    asyncio.run(service.run())
 
 
 if __name__ == '__main__':

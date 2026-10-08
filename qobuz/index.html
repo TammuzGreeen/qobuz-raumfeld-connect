@@ -13,7 +13,37 @@
 let token=sessionStorage.getItem('setupToken')||'';
 const $=id=>document.getElementById(id);
 async function api(path,body){const r=await fetch('/api/'+path,{method:body===undefined?'GET':'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});if(!r.ok)throw Error(await r.text());return r.json()}
-async function refresh(){try{const s=await api('status');$('settings').hidden=false;$('unlock').hidden=true;$('account').textContent=s.auth==='connected'?'Signed in':s.auth.replaceAll('_',' ');$('discovery').textContent=!s.lanAddress?'Set LAN_ADDRESS in your .env file and restart.':s.raumfeldReady?'Select the rooms you want to see in Qobuz.':'Waiting for Raumfeld discovery…';$('quality').value=s.quality;$('rooms').replaceChildren();for(const room of s.rooms){const label=document.createElement('label');label.className='room';const box=document.createElement('input');box.type='checkbox';box.value=room.id;box.checked=s.selectedRooms.includes(room.id);box.disabled=room.grouped&&!box.checked;label.append(box,document.createTextNode(' '+room.name+' · '+room.source+(room.grouped?' · ungroup in Teufel to play':'')+(room.fresh?'':' · unavailable')));$('rooms').append(label)}$('message').textContent=s.advertised.length+' speaker(s) advertised in Qobuz.'}catch(e){$('message').textContent='Unable to load setup. Check your token and connection.';$('unlock').hidden=false}}
+const reasons={host_unavailable:'Raumfeld host unavailable',topology_stale:'room topology is stale',physical_renderer_missing:'no physical renderer in room',physical_observation_missing:'waiting for a complete physical renderer observation',physical_observation_stale:'physical renderer observation is stale',virtual_observation_missing:'waiting for a complete zone renderer observation',virtual_observation_stale:'zone renderer observation is stale',lan_address_not_local:'LAN_ADDRESS is not assigned to this Docker host',receiver_port_in_use:'receiver port is already in use',receiver_start_failed:'receiver startup failed'};
+async function refresh(){try{
+  const s=await api('status');$('settings').hidden=false;$('unlock').hidden=true;
+  $('account').textContent=s.auth==='connected'?'Signed in':s.auth.replaceAll('_',' ');
+  $('discovery').textContent=!s.lanAddress?'Set LAN_ADDRESS to the Docker host’s speaker-facing IPv4 address and restart.':s.lanAddressLocal===false?'LAN_ADDRESS is not assigned to this Docker host. Correct it in the deployment and recreate the container, preserving /data.':s.stateError?'Unable to read current speaker state. Advertisement is suspended.':s.raumfeldReady?'Select the rooms you want to see in Qobuz. Source labels do not determine availability.':'Waiting for fresh Raumfeld room topology…';
+  $('quality').value=s.quality;$('rooms').replaceChildren();
+  for(const room of s.rooms){
+    const label=document.createElement('label');label.className='room';
+    const box=document.createElement('input');box.type='checkbox';box.value=room.id;box.checked=s.selectedRooms.includes(room.id);box.disabled=room.grouped&&!box.checked;
+    const details=[];
+    if(room.grouped)details.push('ungroup in Teufel to play');
+    if(!room.fresh)details.push('unavailable: '+((room.unavailableReasons||[]).map(r=>reasons[r]||r).join('; ')||'no fresh complete observation'));
+    const ids=[...room.rendererIds,room.zoneId];
+    for(const error of s.observationErrors||[])if(ids.includes(error.id))details.push(error.action+' read failed ('+error.code+')');
+    const receiverError=s.receiverErrors?.[room.id];if(receiverError)details.push(reasons[receiverError]||receiverError);
+    const connection=s.receiverConnections?.[room.id];
+    if(connection){
+      if(connection.error)details.push('Qobuz session: '+connection.error);
+      if(connection.protocolError)details.push('Qobuz protocol error ('+connection.protocolError.code+')');
+      if(connection.lastControlError)details.push('Qobuz control: '+connection.lastControlError);
+      else if(connection.stage!=='waiting_for_app'&&connection.stage!=='ownership_released'){
+        if(!connection.cloudConnected)details.push('Qobuz cloud not connected ('+connection.stage+')');
+        else if(!connection.cloudActive)details.push('Qobuz cloud has not activated this receiver');
+      }
+    }
+    label.append(box,document.createTextNode(' '+room.name+' · '+room.source+(details.length?' · '+details.join(' · '):'')));$('rooms').append(label);
+  }
+  $('message').textContent=s.advertised.length+' speaker(s) advertised in Qobuz.';
+  const lastError=[...(s.connectEvents||[])].reverse().find(e=>/failed|error|invalid|closed|disconnect/.test(e.event));
+  if(lastError)$('message').textContent+=' Last Connect event: '+lastError.event+(lastError.code!==undefined?' ('+lastError.code+')':'')+'.';
+}catch(e){$('message').textContent='Unable to load setup. Check your token and connection.';$('unlock').hidden=false}}
 $('unlockButton').onclick=()=>{token=$('token').value;sessionStorage.setItem('setupToken',token);refresh()};
 $('refresh').onclick=refresh;
 $('login').onclick=async()=>{try{const r=await api('login',{});location.href=r.url}catch(e){$('message').textContent='Unable to start login. Please retry.'}};
