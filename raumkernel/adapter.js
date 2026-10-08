@@ -163,6 +163,12 @@ class RaumkernelObserver {
     } catch { if (valid()) this.store.topologyAt = null; }
     finally { this.busy = false; }
   }
+  invalidateReads(ids) {
+    for (const id of ids) {
+      const entry = this.devices.get(id);
+      if (entry) entry.version++;
+    }
+  }
   stop() {
     this.stopped = true;
     this.epoch++;

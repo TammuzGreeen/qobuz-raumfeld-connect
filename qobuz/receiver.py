@@ -9,12 +9,13 @@ import uuid
 from aiohttp import web
 from qobuz_proxy.config import Config, DeviceConfig, QobuzConfig, ServerConfig
 from qobuz_proxy.connect import DiscoveryService, WsManager
-from qobuz_proxy.playback import QobuzQueue, MetadataService, StateReporter
+from qobuz_proxy.playback import QobuzQueue, StateReporter
 from qobuz_proxy.playback.play_reporter import PlayReporter
 from qobuz_proxy.playback.state_reporter import wire_playing_state
 from qobuz_proxy.playback import QueueHandler, PlaybackCommandHandler, VolumeCommandHandler
 from .backend import AudioRelay, RaumfeldBackend
 from .player import RaumfeldPlayer
+from .diagnostics import PlaybackTimeline, ObservedMetadata
 
 
 class LanDiscovery(DiscoveryService):
@@ -59,7 +60,8 @@ class Receiver:
             qobuz=QobuzConfig(max_quality=quality),
             server=ServerConfig(http_port=room['port'], bind_address=address))
         self.app = web.Application(client_max_size=16384)
-        self.relay = AudioRelay(self.app, address, room['port'])
+        self.timeline = PlaybackTimeline()
+        self.relay = AudioRelay(self.app, address, room['port'], timeline=self.timeline)
         self.discovery = LanDiscovery(self.config, api.app_id, self.connected,
                                       quality_getter=lambda: self.quality, web_app=self.app)
         self.runner = None
@@ -89,10 +91,13 @@ class Receiver:
                 'lastControlError': self.backend.last_control_error if self.backend else None,
                 'lastVolumeResult': dict(self.backend.last_volume_result)
                     if self.backend and self.backend.last_volume_result else None,
-                'lastReleaseReason': self.backend.last_release_reason if self.backend else None}
+                'lastReleaseReason': self.backend.last_release_reason if self.backend else None,
+                'playbackTimeline': self.timeline.snapshot()}
 
     def dispatch(self, handler, msg_type, message):
         self.message_counts[str(msg_type)] = self.message_counts.get(str(msg_type), 0) + 1
+        if msg_type == 41:
+            self.timeline.note('playback_event', messageType=msg_type)
         return handler(msg_type, message)
 
     def note_protocol_error(self, msg_type, message):
@@ -129,7 +134,7 @@ class Receiver:
             key = hashlib.sha256(tokens.session_id.encode()).hexdigest()
             self.seen = {k: exp for k, exp in self.seen.items() if exp > time.monotonic()}
             if key in self.seen or len(self.seen) >= 4096:
-                self.selection_error = 'selection_replayed_or_limit'
+                self.selection_error = 'selection_replayed' if key in self.seen else 'selection_limit'
                 # Upstream discovery installs tokens before invoking our
                 # callback. A rejected retry must not re-advertise a released
                 # session as current. Preserve an existing valid selection.
@@ -148,7 +153,7 @@ class Receiver:
                 await backend.select(key)
                 self.selection_stage = 'wiring_player'
                 queue = QobuzQueue()
-                metadata = MetadataService(api_client=self.api, max_quality=self.quality)
+                metadata = ObservedMetadata(api_client=self.api, max_quality=self.quality, timeline=self.timeline)
                 player = RaumfeldPlayer(queue=queue, metadata_service=metadata, backend=backend,
                                      play_reporter=PlayReporter(self.api))
                 ws = WsManager(config=self.config)

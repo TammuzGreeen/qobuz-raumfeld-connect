@@ -306,7 +306,7 @@ class ReceiverTests(unittest.IsolatedAsyncioTestCase):
             info = await (await client.get('/streamcore/get-connect-info')).json()
             self.assertEqual(info['current_session_id'], '')
             self.assertFalse(receiver.diagnostics()['sessionPresent'])
-            self.assertEqual(receiver.diagnostics()['error'], 'selection_replayed_or_limit')
+            self.assertEqual(receiver.diagnostics()['error'], 'selection_replayed')
             node.control.assert_not_called()
             response = await client.post('/streamcore/connect-to-qconnect', json=[])
             self.assertEqual(response.status, 400)
@@ -371,7 +371,7 @@ class ReceiverTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn('new-session', json.dumps(diagnostic))
             before = len(node.control.call_args_list)
             receiver.discovery.set_session(tokens)
-            await receiver.select(tokens)
+            self.assertFalse(await receiver.select(tokens))
             self.assertEqual(len(node.control.call_args_list), before)
             self.assertEqual(receiver.backend.token, 'lease-1')
             self.assertIsNotNone(receiver.discovery.get_received_tokens())
@@ -385,7 +385,7 @@ class ReceiverTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(node.control.call_args_list),before)
             self.assertIsNone(receiver.discovery.get_received_tokens())
             self.assertEqual(receiver.discovery._current_session_id, '')
-            self.assertEqual(receiver.diagnostics()['error'], 'selection_replayed_or_limit')
+            self.assertEqual(receiver.diagnostics()['error'], 'selection_replayed')
             fresh_tokens = ConnectTokens(session_id='fresh-explicit-test-session',
                 ws_token=JWTConnectToken('synthetic-token', 9999999999, 'wss://example.test'))
             selections_before = sum(c.args[1] == 'select' for c in node.control.call_args_list)
@@ -396,6 +396,19 @@ class ReceiverTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(receiver.diagnostics()['error'])
             await receiver.stop()
         self.assertFalse(any(c.args[1] in ('play','stop','volume') for c in node.control.call_args_list))
+
+    async def test_selection_capacity_is_distinct_from_replay_and_never_grants_control(self):
+        node = MagicMock()
+        node.control = AsyncMock()
+        receiver = Receiver({'id':'r','name':'Room','port':8790},node,
+                            MagicMock(app_id='app'),'192.0.2.2',6)
+        receiver.seen = {hashlib.sha256(str(i).encode()).hexdigest(): time.monotonic()+86400 for i in range(4096)}
+        tokens = ConnectTokens(session_id='fresh-synthetic-selection',
+            ws_token=JWTConnectToken('synthetic-token',9999999999,'wss://example.test'))
+        self.assertFalse(await receiver.select(tokens))
+        self.assertEqual(receiver.diagnostics()['error'], 'selection_limit')
+        node.control.assert_not_called()
+        await receiver.stop()
 
 
 class AvailabilityTests(unittest.IsolatedAsyncioTestCase):

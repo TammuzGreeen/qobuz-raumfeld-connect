@@ -24,3 +24,20 @@
 This is a source-only checkpoint. Runtime configuration, credentials, `/data`, raw
 captures and private audit/rollback material are intentionally excluded. No image
 publication, deployment or release is authorized by this source checkpoint.
+
+## Subsequent local fix
+
+The characterization tests have been converted to intended-result regressions.
+Exact forwarding can be incomplete during the bounded explicit initial handoff;
+Play requires fresh complete matching virtual and physical evidence. New tests
+cover deadline, stale/event-only evidence, contradictory sources, revocation and
+previous-selection callbacks. Bounded byte/SOAP/lookup diagnostics are prepared to
+identify a silence boundary on the next approved hardware test. See
+`HANDOFF_REVIEW.md`; source fixes are not hardware or audible acceptance.
+
+Validation: 79 Node and 44 Python tests; correlated simulated metadata/Node/SOAP/
+relay byte integration; Docker build, process smoke, Python compilation, Compose
+validation, isolated supervisor failure, imports, real discovery initialization
+and graceful shutdown. No candidate deployment or real-speaker mutation was run
+for this fix. Audible playback, repeated hardware handoffs, volume, manual next,
+natural completion and Spotify takeover still require the ordered hardware review.

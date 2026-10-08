@@ -101,6 +101,18 @@
             "uriKind": {"enum": ["spotify", "empty", "qobuz_relay", "internal_transport", "external"]}
           }
         },
+        "lastPlaybackEvidence": {
+          "type": ["object", "null"], "additionalProperties": false,
+          "required": ["at", "load", "play", "sourceConfirmed"],
+          "properties": {
+            "at": {"type": "number"},
+            "load": {"enum": ["not_sent", "pending", "acknowledged", "failed"]},
+            "play": {"enum": ["not_sent", "pending", "acknowledged", "failed"]},
+            "sourceConfirmed": {"type": "boolean"},
+            "loadElapsedMs": {"type": "integer", "minimum": 0},
+            "playElapsedMs": {"type": "integer", "minimum": 0}
+          }
+        },
         "lastVolumeCommand": {
           "type": ["object", "null"], "additionalProperties": false,
           "required": ["at", "connection", "endpoint", "command", "rendererRole", "attempts", "outcome"],

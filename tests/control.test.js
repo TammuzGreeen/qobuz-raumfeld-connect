@@ -299,8 +299,7 @@ test('Seek 710 cannot preserve a lease revoked concurrently by Spotify',async()=
   assert.equal(loss(s).reason,'unexpected_source_uri');
 });
 const forwardingURI = 'http://192.0.2.1:55001/zone-1/room-1/physical-1/audio.flac?punch=1';
-test('handoff observation ordering reproduces premature physical-source rejection',async()=>{
-  // Characterization of the current bug, not the desired fixed behavior.
+test('handoff observation ordering confirms ownership only after both sources match',async()=>{
   // Both orders provide the same fresh, topology-linked forwarding and relay.
   for (const physicalFirst of [true,false]) {
     const s=setup();
@@ -318,34 +317,118 @@ test('handoff observation ordering reproduces premature physical-source rejectio
         AVTransportURI:relay,CurrentTransportState:'STOPPED'});
       if(physicalFirst){physical();virtual();}else{virtual();physical();}
     };
-    if(physicalFirst){
-      await assert.rejects(s.play(token),/ownership_lost/);
-      assert.equal(loss(s).reason,'unexpected_source_uri');
-      assert.equal(loss(s).phase,'transition');
-      assert.equal(loss(s).rendererRole,'physical');
-      assert.deepEqual(s.calls,['load']);
-      assert.equal(s.store.raw.get('zone-1').AVTransportURI,relay);
-      await assert.rejects(s.select(),/selection_already_used/);
-    }else{
-      await s.play(token);
-      assert.equal(loss(s),null);
-      assert.deepEqual(s.calls,['load','play']);
-      assert.equal(s.controller.decorate(s.store.snapshot()).rooms[0].owned,true);
-    }
+    await s.play(token);
+    assert.equal(loss(s),null);
+    assert.deepEqual(s.calls,['load','play']);
+    assert.equal(s.controller.decorate(s.store.snapshot()).rooms[0].owned,true);
   }
 });
-test('handoff observation notification during loading reproduces the same race',async()=>{
+test('handoff observation notification during loading waits for complete source readback',async()=>{
   const s=setup();const {token}=await s.select();
   const load=s.device.setAvTransportUri;
   s.device.setAvTransportUri=async(...args)=>{
     await load(...args);
     // A device notification arrives before the post-load read-only poll.
     s.store.emit('source','physical-1',forwardingURI);
+    assert.equal(s.controller.decorate(s.store.snapshot()).rooms[0].owned,false);
+    assert.deepEqual(s.calls,['load']);
+  };
+  await s.play(token);
+  assert.equal(loss(s),null);
+  assert.deepEqual(s.calls,['load','play']);
+});
+test('incomplete forwarding cannot confirm missing or cached virtual evidence before deadline',async()=>{
+  for(const cached of [false,true]){
+    const s=setup({handoffMs:15});const {token}=await s.select();
+    const load=s.device.setAvTransportUri,poll=s.observer.poll;
+    let loaded=false;
+    s.device.setAvTransportUri=async(...args)=>{
+      if(cached)s.store.observe('zone-1',{AVTransportURI:args[0],CurrentTransportState:'STOPPED'});
+      await load(...args);loaded=true;
+    };
+    s.observer.poll=async()=>{
+      if(!loaded)return poll();
+      s.store.observe('physical-1',{AVTransportURI:forwardingURI,CurrentTransportState:'PLAYING'});
+      assert.equal(s.controller.decorate(s.store.snapshot()).rooms[0].owned,false);
+      if(cached)s.store.renderers.get('zone-1').observedAt=1;
+    };
+    await assert.rejects(s.play(token),cached?/state_unavailable/:/source_not_confirmed/);
+    assert.deepEqual(s.calls,['load']);
+    assert.equal(s.controller.decorate(s.store.snapshot()).rooms[0].owned,false);
+    assert.equal(s.controller.leases.size,0);
+  }
+});
+test('incomplete forwarding never masks contradictory sources, takeover or topology changes',async()=>{
+  for(const contradict of [
+    s=>s.native(),
+    s=>s.store.emit('source','zone-1','https://example.test/competitor'),
+    s=>s.store.emit('source','physical-1',forwardingURI.replace('room-1/','another-room/')),
+    s=>{s.store.rooms[0].rendererIds=['physical-other'];s.store.emit('topology');},
+  ]){
+    const s=setup();const {token}=await s.select(),load=s.device.setAvTransportUri;
+    s.device.setAvTransportUri=async(...args)=>{
+      await load(...args);s.store.emit('source','physical-1',forwardingURI);contradict(s);
+    };
+    await assert.rejects(s.play(token),/ownership_lost/);
+    assert.deepEqual(s.calls,['load']);
+    assert.equal(s.controller.leases.size,0);
+  }
+});
+test('explicit revocation during incomplete handoff cannot be resurrected by delayed evidence',async()=>{
+  const s=setup();const {token}=await s.select(),load=s.device.setAvTransportUri;
+  s.device.setAvTransportUri=async(...args)=>{
+    await load(...args);s.store.emit('source','physical-1',forwardingURI);
+    await s.command(token,'release');
+    s.store.observe('zone-1',{AVTransportURI:args[0],CurrentTransportState:'PLAYING'});
+    s.store.observe('physical-1',{AVTransportURI:forwardingURI,CurrentTransportState:'PLAYING'});
   };
   await assert.rejects(s.play(token),/ownership_lost/);
-  assert.equal(loss(s).reason,'unexpected_source_uri');
-  assert.equal(loss(s).phase,'transition');
-  assert.equal(loss(s).rendererRole,'physical');
+  assert.equal(s.controller.leases.size,0);assert.deepEqual(s.calls,['load']);
+  await assert.rejects(s.select(),/selection_already_used/);
+});
+test('late command success or failure from a prior selection cannot revoke the newer lease',async()=>{
+  for(const reject of [false,true]){
+    const s=setup();const {token}=await s.select();
+    let complete,entered;
+    const loading=new Promise(resolve=>{entered=resolve;});
+    s.device.setAvTransportUri=()=>{s.calls.push('load');entered();return new Promise((resolve,fail)=>{complete=reject?()=>fail(Object.assign(new Error('reset'),{code:'ECONNRESET'})):resolve;});};
+    const pending=s.play(token);await loading;
+    await s.command(token,'release');
+    const fresh=await s.select('fresh-selection-0002');
+    complete();await assert.rejects(pending,/ownership_lost/);
+    await assert.rejects(s.command(token,'heartbeat'),/ownership_lost/);
+    assert.equal(s.controller.leases.get('room-1').token,fresh.token);
+    assert.equal((await s.command(fresh.token,'heartbeat')).owned,false);
+    assert.deepEqual(s.calls,['load']);
+  }
+});
+test('old matching forwarding callbacks alone cannot validate a new selection',async()=>{
+  const s=setup({handoffMs:15});const old=await s.select();await s.command(old.token,'release');
+  const fresh=await s.select('fresh-selection-0002'),load=s.device.setAvTransportUri;
+  let loaded=false;
+  s.device.setAvTransportUri=async(...args)=>{await load(...args);loaded=true;s.store.emit('source','physical-1',forwardingURI);};
+  const poll=s.observer.poll;
+  s.observer.poll=async()=>{if(!loaded)return poll();s.store.emit('source','physical-1',forwardingURI);};
+  await assert.rejects(s.play(fresh.token),/source_not_confirmed/);
+  assert.deepEqual(s.calls,['load']);
+});
+test('event-only matching sources never count as complete post-load reads',async()=>{
+  const s=setup({handoffMs:15});const {token}=await s.select(),load=s.device.setAvTransportUri;
+  let loaded=false,relay;
+  s.device.setAvTransportUri=async(...args)=>{await load(...args);loaded=true;relay=args[0];};
+  const poll=s.observer.poll;
+  s.observer.poll=async()=>{
+    if(!loaded)return poll();
+    s.store.observe('physical-1',{AVTransportURI:forwardingURI,CurrentTransportState:'PLAYING'},{refresh:false});
+    s.store.observe('zone-1',{AVTransportURI:relay,CurrentTransportState:'PLAYING'},{refresh:false});
+  };
+  await assert.rejects(s.play(token),/source_not_confirmed/);
+  assert.deepEqual(s.calls,['load']);
+});
+test('complete evidence arriving after the handoff deadline cannot authorize Play',async()=>{
+  const s=setup({handoffMs:5});const {token}=await s.select(),load=s.device.setAvTransportUri;
+  s.device.setAvTransportUri=async(...args)=>{await load(...args);await new Promise(r=>setTimeout(r,10));};
+  await assert.rejects(s.play(token),/source_not_confirmed|spotify_still_active/);
   assert.deepEqual(s.calls,['load']);
 });
 test('topology-linked physical forwarding preserves only freshly confirmed virtual ownership',async()=>{
@@ -507,4 +590,14 @@ test('volume command diagnostics are copied, redacted and schema-valid',async()=
   assert.ok(!JSON.stringify(snapshot.rooms[0].lastVolumeCommand).includes('room-1'));
   snapshot.rooms[0].lastVolumeCommand.outcome='modified';
   assert.equal(s.controller.decorate(s.store.snapshot()).rooms[0].lastVolumeCommand.outcome,'confirmed');
+});
+test('late volume reset cannot revoke a newer explicit selection',async()=>{
+  const s=setup();const {token}=await s.select();await s.play(token);
+  let complete,entered;const writing=new Promise(resolve=>{entered=resolve;});
+  s.device.setRoomVolume=()=>{entered();return new Promise((resolve,reject)=>{complete=()=>reject(Object.assign(new Error('reset'),{code:'ECONNRESET'}));});};
+  const pending=s.command(token,'volume',{value:36});await writing;
+  await s.command(token,'release');const fresh=await s.select('new-explicit-selection');
+  complete();await assert.rejects(pending,/command_failed_or_timed_out/);
+  assert.equal(s.controller.leases.get('room-1').token,fresh.token);
+  assert.equal((await s.command(fresh.token,'heartbeat')).owned,false);
 });

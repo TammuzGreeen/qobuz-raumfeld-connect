@@ -21,6 +21,7 @@ class Controller {
     this.leases = new Map();
     this.ownershipLosses = new Map();
     this.volumeCommands = new Map();
+    this.playbackCommands = new Map();
     this.seen = new Map();
     this.queue = Promise.resolve();
     store.on('lost', () => {
@@ -34,7 +35,9 @@ class Controller {
     store.on('topology', () => {
       for (const [id, lease] of this.leases) {
         const room = store.rooms.find(r => r.id === id);
-        if (!room || this.grouped(room) || (!lease.transition && signature(room) !== lease.signature)) this.revoke(id, 'topology_changed');
+        const creatingZone = lease.pending && lease.transition && lease.target === lease.physicalIds[0] &&
+          room && JSON.stringify(room.rendererIds) === JSON.stringify(lease.physicalIds);
+        if (!room || this.grouped(room) || (!creatingZone && signature(room) !== lease.signature)) this.revoke(id, 'topology_changed');
       }
     });
   }
@@ -71,14 +74,12 @@ class Controller {
     if (!snapshot.topologyFresh || (fresh && !room.fresh)) fail('state_unavailable');
     return room;
   }
-  physicalForwarding(roomId, lease, rendererId, value) {
+  forwardingShape(roomId, lease, rendererId, value) {
     if (classify({AVTransportURI: value}) === 'spotify') return false;
     if (lease.expires <= this.now() || !lease.physicalIds.includes(rendererId) || rendererId === lease.target || !lease.expected.size) return false;
     const snapshot = this.store.snapshot(), room = snapshot.rooms.find(r => r.id === roomId);
-    if (!snapshot.topologyFresh || !room?.fresh || this.grouped(room) || room.zoneId !== lease.target ||
+    if (!snapshot.topologyFresh || !room || this.grouped(room) || room.zoneId !== lease.target ||
         JSON.stringify(room.rendererIds) !== JSON.stringify(lease.physicalIds)) return false;
-    const target = this.store.raw.get(lease.target) || {}, targetURIs = uris(target);
-    if (classify(target) === 'spotify' || !targetURIs.length || !targetURIs.every(uri => lease.expected.has(uri))) return false;
     let url;
     try { url = new URL(value); } catch { return false; }
     if (url.protocol !== 'http:' || url.hostname !== this.store.host || +url.port < 49152 || +url.port > 65535 ||
@@ -96,6 +97,13 @@ class Controller {
     const query = [...url.searchParams.entries()];
     return query.length === 1 && query[0][0] === 'punch' && /^\d{1,20}$/.test(query[0][1]);
   }
+  physicalForwarding(roomId, lease, rendererId, value) {
+    if (!this.forwardingShape(roomId, lease, rendererId, value)) return false;
+    if (!this.store.snapshot().rooms.find(r => r.id === roomId)?.fresh) return false;
+    const target = this.store.raw.get(lease.target) || {}, targetURIs = uris(target);
+    return classify(target) !== 'spotify' && targetURIs.length > 0 &&
+      targetURIs.every(uri => lease.expected.has(uri));
+  }
   sourceChanged(id, values) {
     for (const [roomId, lease] of this.leases) {
       if (!lease.ids.includes(id)) continue;
@@ -104,6 +112,11 @@ class Controller {
         // Only the initial explicit transition may see the source being replaced.
         if ((lease.pending || lease.transition) && lease.baseline.get(id)?.includes(value)) return false;
         if (this.physicalForwarding(roomId, lease, id, value)) return false;
+        // A structurally exact forwarding notification is incomplete, not owned.
+        // Only the explicit initial load may await new virtual evidence, within
+        // the existing handoff deadline. Competing URIs still revoke immediately.
+        if (lease.pending && lease.transition && performance.now() < lease.handoffUntil &&
+            this.forwardingShape(roomId, lease, id, value)) return false;
         // Physical renderers can expose an internal transport URI while their
         // virtual renderer owns playback. Accept only their observed baseline,
         // and never allow Spotify evidence after transition completion.
@@ -115,10 +128,9 @@ class Controller {
   }
   current(id, token) {
     const lease = this.leases.get(id);
-    if (!lease || lease.token !== token || lease.expires <= this.now()) {
-      this.revoke(id, lease?.token !== token ? 'token_mismatch' : 'lease_expired');
-      fail('ownership_lost');
-    }
+    // Late work for an old token must never revoke a newer selected lease.
+    if (!lease || lease.token !== token) fail('ownership_lost');
+    if (lease.expires <= this.now()) { this.revoke(id, 'lease_expired'); fail('ownership_lost'); }
     try { this.room(id, !lease.transition); }
     catch (error) { this.noteOwnershipLoss(id, 'room_guard_failed'); throw error; }
     if (JSON.stringify(this.room(id, false).rendererIds) !== JSON.stringify(lease.physicalIds)) {
@@ -138,6 +150,7 @@ class Controller {
       room.owned = !!lease && lease.expires > this.now() && !lease.pending && room.fresh;
       room.lastOwnershipLoss = this.ownershipLosses.has(room.id) ? {...this.ownershipLosses.get(room.id)} : null;
       room.lastVolumeCommand = this.volumeCommands.has(room.id) ? {...this.volumeCommands.get(room.id)} : null;
+      room.lastPlaybackEvidence = this.playbackCommands.has(room.id) ? {...this.playbackCommands.get(room.id)} : null;
       if (room.owned) { room.source = 'qobuz'; room.protected = false; }
     }
     return snapshot;
@@ -170,19 +183,34 @@ class Controller {
     return this.current(id, token);
   }
   async action(id, token, device, method, ...args) {
-    this.current(id, token);
+    const lease = this.current(id, token);
+    const diagnostic = this.playbackCommands.get(id);
+    const stage = method === 'setAvTransportUri' ? 'load' : method === 'play' ? 'play' : null;
+    const started = performance.now();
+    if (stage && diagnostic && lease.loadingEvidence === diagnostic) diagnostic[stage] = 'pending';
     const timeout = Object.assign(new Error('Command deadline exceeded'), {code: 'ECOMMANDTIMEOUT'});
     try {
       const command = method === 'connectRoomToZone' ? device[method](...args) : rendererCommand(device, method, args);
-      return await deadline(command, this.timeoutMs, timeout);
+      const result = await deadline(command, this.timeoutMs, timeout);
+      if (stage && diagnostic && lease.loadingEvidence === diagnostic) {
+        diagnostic[stage] = 'acknowledged';
+        diagnostic[`${stage}ElapsedMs`] = Math.round(performance.now() - started);
+      }
+      this.current(id, token);
+      return result;
     }
     catch (error) {
+      if (stage && diagnostic && lease.loadingEvidence === diagnostic && diagnostic[stage] !== 'acknowledged') {
+        diagnostic[stage] = 'failed';
+        diagnostic[`${stage}ElapsedMs`] = Math.round(performance.now() - started);
+      }
       // A definite unsupported-seek SOAP fault means the position was not
       // applied. It is not an uncertain transport failure or a source takeover.
       if (method === 'seek' && error?.code === 'EUPNP' && String(error.errorCode) === '710') {
         this.current(id, token);
         return {accepted: false, applied: false, error: 'seek_mode_not_supported', upnpErrorCode: 710};
       }
+      if (this.leases.get(id) !== lease) fail('ownership_lost');
       const hadLease = this.leases.has(id);
       this.revoke(id, 'command_failed_or_timed_out');
       const loss = this.ownershipLosses.get(id);
@@ -236,14 +264,14 @@ class Controller {
     diagnostic.elapsedMs = Math.round(performance.now() - started);
     // The mutation is never retried, even when the readback matches. Obtain
     // complete new source evidence, not merely transport PLAYING or a getter.
-    const before = new Map(lease.ids.map(rendererId => [rendererId, this.store.raw.get(rendererId)]));
+    const before = new Map(lease.ids.map(rendererId => [rendererId, this.store.completeReads.get(rendererId) || 0]));
     const observationStart = this.now();
     try {
       await this.refresh(id, token);
       this.volumeEvidence(id, token, lease);
       const snapshot = this.store.snapshot();
       for (const rendererId of lease.ids) {
-        if (before.get(rendererId) === this.store.raw.get(rendererId) ||
+        if ((this.store.completeReads.get(rendererId) || 0) <= before.get(rendererId) ||
             snapshot.renderers.find(r => r.id === rendererId)?.observedAt < observationStart) fail('state_unavailable');
       }
       diagnostic.ownership = 'confirmed';
@@ -260,7 +288,7 @@ class Controller {
     } catch {
       diagnostic.ownership = 'unavailable';
       diagnostic.outcome = 'failed_closed';
-      this.revoke(id, 'volume_ownership_unconfirmed');
+      if (this.leases.get(id) === lease) this.revoke(id, 'volume_ownership_unconfirmed');
       fail('command_failed_or_timed_out');
     }
     if (commandError || diagnostic.observedVolume !== value) {
@@ -286,7 +314,12 @@ class Controller {
       if (!lease.pending) lease.expires = this.now() + this.leaseMs;
       return {owned: !lease.pending, expiresAt: lease.expires};
     }
-    const job = this.queue.then(() => this.execute(request));
+    const job = this.queue.then(() => this.execute(request)).catch(error => {
+      const lease = this.leases.get(roomId);
+      if (action === 'play' && lease?.token === token && lease.pending &&
+          lease.transition && lease.loadingEvidence) this.revoke(roomId, 'room_guard_failed');
+      throw error;
+    });
     this.queue = job.catch(() => {});
     return job;
   }
@@ -321,11 +354,19 @@ class Controller {
         if (!room.zoneId || !this.observer.devices.has(room.zoneId)) { this.revoke(id, 'zone_unavailable'); fail('zone_unavailable'); }
         lease.ids = [...room.rendererIds, room.zoneId];
         lease.target = room.zoneId;
+        lease.signature = signature(room);
       }
     }
     const device = this.observer.devices.get(lease.target)?.device;
     if (!device) { this.revoke(id, 'renderer_unavailable'); fail('renderer_unavailable'); }
     if (action === 'play') {
+      lease.loadingEvidence = {at: this.now(), load: 'not_sent', play: 'not_sent', sourceConfirmed: false};
+      this.playbackCommands.set(id, lease.loadingEvidence);
+      while (this.playbackCommands.size > 50) this.playbackCommands.delete(this.playbackCommands.keys().next().value);
+      lease.handoffUntil = performance.now() + this.handoffMs;
+      lease.loadBefore = new Map(lease.ids.map(rendererId => [rendererId, this.store.completeReads.get(rendererId) || 0]));
+      // Discard read requests already in flight before this load generation.
+      this.observer.invalidateReads?.(lease.ids);
       lease.expected.add(url);
       const title = escapeXml(metadata.title), artist = escapeXml(metadata.artist), album = escapeXml(metadata.album);
       const mime = metadata.mime === 'audio/mpeg' ? 'audio/mpeg' : 'audio/flac';
@@ -338,28 +379,43 @@ class Controller {
       // Only the first explicit Play may wait for the selected Spotify source
       // to relinquish. sourceChanged still rejects new source/session evidence,
       // and each poll rechecks freshness, membership and the original deadline.
-      const deadlineAt = performance.now() + this.handoffMs;
+      const deadlineAt = lease.handoffUntil;
       for (;;) {
         const targetRaw = this.store.raw.get(lease.target) || {};
-        const targetConfirmed = classify(targetRaw) !== 'spotify' && uris(targetRaw).includes(url);
+        const targetConfirmed = classify(targetRaw) !== 'spotify' && uris(targetRaw).length > 0 &&
+          uris(targetRaw).every(uri => uri === url) &&
+          (this.store.completeReads.get(lease.target) || 0) > lease.loadBefore.get(lease.target);
         const physical = room.rendererIds.find(renderer => classify(this.store.raw.get(renderer) || {}) === 'spotify');
-        if (targetConfirmed && !physical) break;
+        const physicalConfirmed = room.rendererIds.every(renderer => {
+          const raw = this.store.raw.get(renderer), values = uris(raw);
+          return (this.store.completeReads.get(renderer) || 0) > lease.loadBefore.get(renderer) && values.length > 0 && values.every(uri =>
+            lease.expected.has(uri) || this.physicalForwarding(id, lease, renderer, uri) ||
+            (classify({AVTransportURI:uri}) !== 'spotify' && lease.baseline.get(renderer)?.includes(uri)));
+        });
+        if (targetConfirmed && physicalConfirmed && !physical && performance.now() < deadlineAt) break;
         if (!lease.pending || !lease.transition || performance.now() >= deadlineAt) {
-          if (!targetConfirmed) {
+          if (!targetConfirmed || !physical) {
             this.revoke(id, 'source_not_confirmed', lease.target); fail('source_not_confirmed');
           }
           this.revoke(id, 'spotify_still_active', physical); fail('spotify_still_active');
         }
         await new Promise(resolve => setTimeout(resolve, Math.min(this.handoffPollMs, Math.max(0, deadlineAt - performance.now()))));
+        if (performance.now() >= deadlineAt) continue;
         await this.refresh(id, token);
         this.room(id);
       }
       lease.pending = false;
+      lease.loadingEvidence.sourceConfirmed = true;
       lease.transition = false;
       lease.signature = signature(this.room(id));
       lease.expires = this.now() + this.leaseMs;
       await this.action(id, token, device, 'play', false);
       lease.expected = new Set([url]);
+      delete lease.loadBefore;
+      delete lease.handoffUntil;
+      const playbackEvidence = {...lease.loadingEvidence};
+      delete lease.loadingEvidence;
+      return {accepted: true, playbackEvidence};
     } else {
       const targetRaw = this.store.raw.get(lease.target);
       if (!uris(targetRaw).some(uri => lease.expected.has(uri)) || this.room(id).source === 'spotify') {
@@ -367,7 +423,7 @@ class Controller {
       }
       if (action === 'volume') return this.volume(id, token, device, lease, value);
       const methods = {pause: ['pause', false], resume: ['play', false], stop: ['stop', false],
-        volume: ['setVolume', value, false], seek: ['seek', 'REL_TIME', [Math.floor((value || 0)/3600000), Math.floor((value || 0)/60000)%60, Math.floor((value || 0)/1000)%60].map(v=>String(v).padStart(2,'0')).join(':')]};
+        seek: ['seek', 'REL_TIME', [Math.floor((value || 0)/3600000), Math.floor((value || 0)/60000)%60, Math.floor((value || 0)/1000)%60].map(v=>String(v).padStart(2,'0')).join(':')]};
       const result = await this.action(id, token, device, ...methods[action]);
       if (action === 'seek' && result?.error === 'seek_mode_not_supported') return result;
     }

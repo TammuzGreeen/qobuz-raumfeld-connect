@@ -17,7 +17,7 @@ COPY raumkernel ./raumkernel
 COPY qobuz/*.py qobuz/*.html ./qobuz/
 COPY shared ./shared
 COPY docker ./docker
-COPY LICENSE ARCHITECTURE.md README.md SPEAKER_AVAILABILITY.md VOLUME_REVIEW.md ./
+COPY LICENSE ARCHITECTURE.md README.md SPEAKER_AVAILABILITY.md VOLUME_REVIEW.md HANDOFF_REVIEW.md CHECKPOINT_STATUS.md ./
 RUN /app/qobuz/.venv/bin/python -c "from qobuz.receiver import Receiver; from qobuz.service import Service" \
     && node -e "const {Raumkernel}=require('node-raumkernel'); new Raumkernel()" \
     && useradd --uid 10001 --create-home app \

@@ -58,6 +58,20 @@ test('late poll cannot resurrect devices after host loss', async t => {
   assert.equal(store.snapshot().topologyFresh, false);
   assert.equal(store.snapshot().renderers.length, 0);
 });
+test('new load generation discards source reads already in flight',async t=>{
+  const {store,adapter,device}=setup(t);
+  await new Promise(r=>setImmediate(r));await adapter.poll();
+  const before=store.raw.get(device.udn()),original=device.callAction;
+  let complete;
+  device.callAction=(service,action,params)=>action==='GetMediaInfo'
+    ?new Promise(resolve=>{complete=resolve;}):original(service,action,params);
+  const pending=adapter.poll();await new Promise(r=>setImmediate(r));
+  adapter.invalidateReads([device.udn()]);
+  complete({CurrentURI:'https://example.test/previous-selection'});await pending;
+  assert.equal(store.raw.get(device.udn()),before);
+  device.callAction=original;await adapter.poll();
+  assert.notEqual(store.raw.get(device.udn()),before);
+});
 
 test('poll timeout and malformed topology invalidate readiness without mutations', async t => {
   const {store, adapter} = setup(t);

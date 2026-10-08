@@ -1,8 +1,79 @@
 """Bounded Connect events; never expose upstream messages or exception text."""
 from collections import deque
+from contextvars import ContextVar
 import logging
 import re
 import time
+
+
+class PlaybackTimeline:
+    """In-memory attempt correlation; no track, room, session or URL identifiers."""
+    EVENTS = {'playback_event', 'play_attempt', 'metadata_lookup', 'stream_lookup',
+              'relay_registered', 'node_play', 'relay_request', 'upstream_response',
+              'audio_delivery', 'relay_error', 'transport_observed', 'uri_load',
+              'sources_confirmed', 'play_soap'}
+
+    def __init__(self):
+        self.events = deque(maxlen=64)
+        self.sequence = 0
+        self.attempt = ContextVar('playback_attempt', default=0)
+
+    def begin(self):
+        self.sequence += 1
+        token = self.attempt.set(self.sequence)
+        self.note('play_attempt')
+        return token
+
+    def note(self, event, *, attempt=None, **fields):
+        if event not in self.EVENTS:
+            return
+        item = {'at': int(time.time() * 1000), 'event': event,
+                'attempt': self.attempt.get() if attempt is None else attempt}
+        if type(item['attempt']) is not int or item['attempt'] < 0:
+            item['attempt'] = 0
+        for key, value in fields.items():
+            if key in {'status', 'elapsedMs', 'bytesWritten', 'messageType'} and type(value) is int and value >= 0:
+                item[key] = value
+            elif key in {'success', 'rangeRequested', 'head', 'contentRangePresent'} and type(value) is bool:
+                item[key] = value
+            elif key == 'contentType' and value in {'flac', 'mpeg', 'octet_stream', 'other', 'missing'}:
+                item[key] = value
+            elif key == 'transport' and value in {'PLAYING', 'PAUSED_PLAYBACK', 'STOPPED', 'NO_MEDIA_PRESENT', 'UNKNOWN'}:
+                item[key] = value
+        self.events.append(item)
+
+    def snapshot(self):
+        return [dict(event) for event in self.events]
+
+
+# Observe public upstream methods, without replacing API/authentication/cache logic.
+from qobuz_proxy.playback import MetadataService
+
+
+class ObservedMetadata(MetadataService):
+    def __init__(self, *args, timeline, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.timeline = timeline
+
+    async def get_metadata(self, *args, **kwargs):
+        started = time.monotonic()
+        result = None
+        try:
+            result = await super().get_metadata(*args, **kwargs)
+            return result
+        finally:
+            self.timeline.note('metadata_lookup', success=result is not None,
+                               elapsedMs=round((time.monotonic() - started) * 1000))
+
+    async def get_streaming_url(self, *args, **kwargs):
+        started = time.monotonic()
+        result = None
+        try:
+            result = await super().get_streaming_url(*args, **kwargs)
+            return result
+        finally:
+            self.timeline.note('stream_lookup', success=bool(result),
+                               elapsedMs=round((time.monotonic() - started) * 1000))
 
 
 class ConnectDiagnostics(logging.Handler):

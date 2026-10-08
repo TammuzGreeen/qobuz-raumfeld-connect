@@ -17,6 +17,16 @@ class RaumfeldPlayer(QobuzPlayer):
             raise
 
     async def _play_locked(self, position_ms=0):
+        timeline = self.backend.relay.timeline
+        if not timeline:
+            return await self._play_with_seek_reconciliation(position_ms)
+        token = timeline.begin()
+        try:
+            return await self._play_with_seek_reconciliation(position_ms)
+        finally:
+            timeline.attempt.reset(token)
+
+    async def _play_with_seek_reconciliation(self, position_ms=0):
         generation = self._command_generation
         try:
             return await super()._play_locked(position_ms)

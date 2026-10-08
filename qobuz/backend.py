@@ -2,6 +2,7 @@
 import asyncio
 import contextlib
 import secrets
+import time
 from urllib.parse import urlparse
 import aiohttp
 from aiohttp import web
@@ -19,9 +20,11 @@ class VolumeUncertain(Exception):
 
 
 class AudioRelay:
-    def __init__(self, app, address, port):
+    def __init__(self, app, address, port, timeline=None):
         self.address, self.port = address, port
         self.tracks = {}
+        self.timeline = timeline
+        self.attempts = {}
         app.router.add_get('/audio/{key}', self.stream)
 
     def register(self, url):
@@ -29,19 +32,46 @@ class AudioRelay:
             raise ValueError('Invalid upstream audio URL')
         key = secrets.token_hex(16)
         self.tracks[key] = url
+        if self.timeline:
+            self.attempts[key] = self.timeline.attempt.get()
+            self.timeline.note('relay_registered')
         while len(self.tracks) > 4:
-            del self.tracks[next(iter(self.tracks))]
+            old = next(iter(self.tracks))
+            del self.tracks[old]
+            self.attempts.pop(old, None)
         return f'http://{self.address}:{self.port}/audio/{key}'
 
     async def stream(self, request):
+        attempt = self.attempts.get(request.match_info['key'], 0)
+        def note(event, **fields):
+            if self.timeline:
+                self.timeline.note(event, attempt=attempt, **fields)
+        note('relay_request', rangeRequested='Range' in request.headers, head=request.method == 'HEAD')
         url = self.tracks.get(request.match_info['key'])
         if not url:
+            note('relay_error', status=404)
             raise web.HTTPNotFound()
         headers = {name: request.headers[name] for name in ('Range', 'If-Range') if name in request.headers}
         headers['Accept-Encoding'] = 'identity'
+        started = time.monotonic()
+        progress = {'bytes': 0}
+        try:
+            return await self._deliver(request, url, headers, note, started, progress)
+        except (Exception, asyncio.CancelledError):
+            note('relay_error', bytesWritten=progress['bytes'], success=False,
+                 elapsedMs=round((time.monotonic() - started) * 1000))
+            raise
+
+    async def _deliver(self, request, url, headers, note, started, progress):
+        written = 0
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=None, sock_connect=10, sock_read=30),
                                          auto_decompress=False) as session:
             async with session.get(url, headers=headers) as source:
+                content_type = source.headers.get('Content-Type', '').split(';')[0].lower()
+                category = {'audio/flac': 'flac', 'audio/x-flac': 'flac', 'audio/mpeg': 'mpeg',
+                            'application/octet-stream': 'octet_stream'}.get(content_type, 'other' if content_type else 'missing')
+                note('upstream_response', status=source.status, contentType=category,
+                     contentRangePresent='Content-Range' in source.headers)
                 if source.status not in (200, 206, 416):
                     raise web.HTTPBadGateway()
                 copied = {k: v for k, v in source.headers.items() if k.lower() in
@@ -51,7 +81,13 @@ class AudioRelay:
                 if request.method != 'HEAD':
                     async for chunk in source.content.iter_chunked(65536):
                         await response.write(chunk)
+                        written += len(chunk)
+                        progress['bytes'] = written
+                        if written == len(chunk):
+                            note('audio_delivery', bytesWritten=written, success=True)
                 await response.write_eof()
+                note('audio_delivery', bytesWritten=written, success=True,
+                     elapsedMs=round((time.monotonic() - started) * 1000))
                 return response
 
 
@@ -70,6 +106,8 @@ class RaumfeldBackend(AudioBackend):
         self.last_control_error = None
         self.last_volume_result = None
         self.last_release_reason = None
+        self.playback_attempt = 0
+        self.reported_transport = None
 
     async def select(self, selection_id):
         await self.release()
@@ -175,6 +213,10 @@ class RaumfeldBackend(AudioBackend):
                 else:
                     target = room['zoneId'] or room['rendererIds'][0]
                     self.sample = next((r for r in state['renderers'] if r['id'] == target), {})
+                    mode = self.sample.get('transport')
+                    if self.relay.timeline and mode != self.reported_transport:
+                        self.relay.timeline.note('transport_observed', attempt=self.playback_attempt, transport=mode)
+                        self.reported_transport = mode
                     if self.token:
                         await self.command('heartbeat')
                     if self.started and self.token:
@@ -196,9 +238,24 @@ class RaumfeldBackend(AudioBackend):
 
     async def play(self, url, metadata):
         proxy_url = self.relay.register(url)
-        await self.command('play', url=proxy_url, metadata={
-            'title': metadata.title[:2000], 'artist': metadata.artist[:2000], 'album': metadata.album[:2000],
-            'mime': 'audio/mpeg' if metadata.bit_depth == 0 else 'audio/flac'})
+        started = time.monotonic()
+        try:
+            result = await self.command('play', url=proxy_url, metadata={
+                'title': metadata.title[:2000], 'artist': metadata.artist[:2000], 'album': metadata.album[:2000],
+                'mime': 'audio/mpeg' if metadata.bit_depth == 0 else 'audio/flac'})
+        except Exception:
+            if self.relay.timeline:
+                self.relay.timeline.note('node_play', success=False, elapsedMs=round((time.monotonic() - started) * 1000))
+            raise
+        if self.relay.timeline:
+            evidence = result.get('playbackEvidence')
+            if evidence:
+                for event, stage in [('uri_load', 'load'), ('play_soap', 'play')]:
+                    self.relay.timeline.note(event, success=evidence.get(stage) == 'acknowledged',
+                        elapsedMs=evidence.get(stage + 'ElapsedMs'))
+                self.relay.timeline.note('sources_confirmed', success=evidence.get('sourceConfirmed') is True)
+            self.relay.timeline.note('node_play', success=True, elapsedMs=round((time.monotonic() - started) * 1000))
+            self.playback_attempt = self.relay.timeline.attempt.get()
         self.started = True
         self.last_playing = False
         self._notify_state_change(PlaybackState.PLAYING)

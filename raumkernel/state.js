@@ -54,6 +54,7 @@ class StateStore extends EventEmitter {
     this.renderers = new Map();
     this.revision = 0;
     this.raw = new Map();
+    this.completeReads = new Map();
     this.observationErrors = new Map();
   }
   hostFound(host) {
@@ -66,6 +67,7 @@ class StateStore extends EventEmitter {
     this.topologyAt = null;
     this.renderers.clear();
     this.raw.clear();
+    this.completeReads.clear();
     this.observationErrors.clear();
     this.revision++;
     this.emit('lost');
@@ -93,7 +95,10 @@ class StateStore extends EventEmitter {
       positionMs: timeMs(state.RelTime), durationMs: timeMs(state.TrackDuration),
     });
     this.raw.set(id, {...state});
-    if (refresh) this.observationErrors.delete(id);
+    if (refresh) {
+      this.observationErrors.delete(id);
+      this.completeReads.set(id, (this.completeReads.get(id) || 0) + 1);
+    }
     this.revision++;
     this.emit('observation', id, state);
   }
@@ -104,7 +109,7 @@ class StateStore extends EventEmitter {
       action: actions.includes(error?.observationAction) ? error.observationAction : 'Observation',
       code: codes.includes(error?.code) ? error.code : 'observation_failed_or_timed_out'});
   }
-  removed(id) { this.renderers.delete(id); this.raw.delete(id); this.observationErrors.delete(id); this.revision++; this.emit('removed', id); }
+  removed(id) { this.renderers.delete(id); this.raw.delete(id); this.completeReads.delete(id); this.observationErrors.delete(id); this.revision++; this.emit('removed', id); }
   snapshot() {
     const at = this.now();
     const topologyFresh = !!this.host && this.topologyAt !== null && at - this.topologyAt <= this.staleMs;
