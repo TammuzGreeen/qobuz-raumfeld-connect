@@ -1,9 +1,21 @@
 """Narrow adaptation for a renderer that rejects the initial resume seek."""
 from qobuz_proxy.playback import QobuzPlayer
-from .backend import SeekUnsupported
+from .backend import SeekUnsupported, VolumeUncertain
 
 
 class RaumfeldPlayer(QobuzPlayer):
+    async def set_volume(self, level):
+        try:
+            return await super().set_volume(level)
+        except VolumeUncertain:
+            observed = (self.backend.last_volume_result or {}).get('observedVolume')
+            if isinstance(observed, int) and 0 <= observed <= 100:
+                self._volume = observed
+                await self._report_volume_change()
+            # Preserve the failed outcome; do not report the requested level as
+            # successfully applied. Upstream's volume handler catches this.
+            raise
+
     async def _play_locked(self, position_ms=0):
         generation = self._command_generation
         try:

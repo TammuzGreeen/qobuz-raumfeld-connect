@@ -10,6 +10,8 @@ function rendererCommand(device, method, args) {
     stop: ['AVTransport', 'Stop', {InstanceID: 0}],
     seek: ['AVTransport', 'Seek', {InstanceID: 0, Unit: args[0], Target: args[1]}],
     setVolume: ['RenderingControl', 'SetVolume', {InstanceID: 0, Channel: 'Master', DesiredVolume: args[0]}],
+    setRoomVolume: ['RenderingControl', 'SetRoomVolume', {InstanceID: 0, Room: args[0], DesiredVolume: args[1]}],
+    getRoomVolume: ['RenderingControl', 'GetRoomVolume', {InstanceID: 0, Room: args[0]}],
   };
   const command = commands[method];
   if (!command) throw new Error('Unsupported renderer command');

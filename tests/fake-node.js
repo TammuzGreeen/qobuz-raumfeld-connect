@@ -5,7 +5,7 @@ const {Controller} = require('../raumkernel/control');
 const {createApi} = require('../raumkernel/api');
 const store = new StateStore();
 let uri='spotify://playback', mode='PAUSED_PLAYBACK', volume=35;
-let seekUnsupported=false;
+let seekUnsupported=false, volumeReset=false;
 let forwarding=false;
 const topology={zoneConfig:{zones:[{zone:[{$:{udn:'zone'},room:[{$:{udn:'room',name:'Room'},renderer:[{$:{udn:'physical'}}]}]}]}]}};
 store.hostFound('127.0.0.1');
@@ -21,7 +21,9 @@ device.callAction=async(service,action,params)=>{
   const actions={SetAVTransportURI:()=>device.setAvTransportUri(params.CurrentURI),
     Play:()=>{if(params.Speed!=='1')throw new Error('Missing test speed');return device.play();},
     Pause:()=>device.pause(),Stop:()=>device.stop(),Seek:()=>device.seek(),
-    SetVolume:()=>device.setVolume(params.DesiredVolume)};
+    SetVolume:()=>device.setVolume(params.DesiredVolume),
+    SetRoomVolume:()=>{if(params.Room!=='room')throw new Error('Wrong room');if(volumeReset)throw Object.assign(new Error('reset'),{code:'ECONNRESET'});return device.setVolume(params.DesiredVolume);},
+    GetRoomVolume:()=>{if(params.Room!=='room')throw new Error('Wrong room');return {CurrentVolume:String(volume)};}};
   return actions[action]();
 };
 const observer={busy:false,poll:async()=>observe(),devices:new Map([['zone',{device}],['physical',{device}]])};
@@ -31,6 +33,7 @@ server.listen(0,'127.0.0.1',()=>console.log(server.address().port));
 process.stdin.setEncoding('utf8');
 process.stdin.on('data',data=>{
   if(data.trim()==='forwarding'){forwarding=true;observe();console.log('forwarding');return;}
+  if(data.trim()==='volume-reset'){volumeReset=true;console.log('volume-reset');return;}
   if(data.trim()==='seek-unsupported'){seekUnsupported=true;console.log('seek-unsupported');return;}
   forwarding=false;uri='spotify://external';observe();console.log('native');
 });

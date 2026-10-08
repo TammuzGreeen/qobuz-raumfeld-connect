@@ -31,6 +31,17 @@ missing auth 401, unsupported content type 415, oversized body 413. JSON request
 limit is 16384 bytes. Unexpected service failures return sanitized 503 responses.
 The caller must not retry uncertain commands or automatically reselect.
 
+For an already-owned single room, volume uses virtual RenderingControl
+`SetRoomVolume(InstanceID=0, Room=<exact room UDN>, DesiredVolume=0..100)` and
+read-only `GetRoomVolume` readback. A volume-only unconfirmed response may retain
+the identical lease only after complete new authoritative source observations.
+It returns `accepted:false`, `applied:null`, `error:volume_command_uncertain`,
+`ownershipRetained:true`; it is not an applied-volume acknowledgement. Further
+volume writes on that lease are blocked. Control API transport failures still
+release ownership; source, freshness, membership and replay guards are unchanged.
+`lastVolumeCommand` records sanitized SOAP action/timing, fault code, readback and
+ownership confirmation, separately from Python's control-API response diagnostics.
+
 State includes `positionMs`, `durationMs`, `volume` and `transport` for renderers.
 Rooms include `unavailableReasons` distinguishing absent host, stale topology,
 and missing/stale physical or virtual observations. `observationErrors` records

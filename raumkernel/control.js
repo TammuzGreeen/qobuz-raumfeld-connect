@@ -20,6 +20,7 @@ class Controller {
     Object.assign(this, {store, observer, allowedRooms, streamAddress, now, leaseMs, selectionMs, timeoutMs, handoffMs, handoffPollMs});
     this.leases = new Map();
     this.ownershipLosses = new Map();
+    this.volumeCommands = new Map();
     this.seen = new Map();
     this.queue = Promise.resolve();
     store.on('lost', () => {
@@ -136,6 +137,7 @@ class Controller {
       room.controllable = room.enabled && !this.grouped(room) && room.fresh;
       room.owned = !!lease && lease.expires > this.now() && !lease.pending && room.fresh;
       room.lastOwnershipLoss = this.ownershipLosses.has(room.id) ? {...this.ownershipLosses.get(room.id)} : null;
+      room.lastVolumeCommand = this.volumeCommands.has(room.id) ? {...this.volumeCommands.get(room.id)} : null;
       if (room.owned) { room.source = 'qobuz'; room.protected = false; }
     }
     return snapshot;
@@ -193,6 +195,83 @@ class Controller {
       }
       fail('command_failed_or_timed_out');
     }
+  }
+  volumeEvidence(id, token, lease) {
+    if (this.current(id, token) !== lease || lease.pending || lease.transition) fail('ownership_lost');
+    const room = this.room(id), snapshot = this.store.snapshot();
+    if (room.zoneId !== lease.target || signature(room) !== lease.signature) fail('ownership_lost');
+    for (const rendererId of lease.ids) {
+      const values = uris(this.store.raw.get(rendererId));
+      if (!values.length || values.some(value => classify({AVTransportURI: value}) === 'spotify')) fail('ownership_lost');
+      if (values.some(value => !lease.expected.has(value) &&
+          !this.physicalForwarding(id, lease, rendererId, value))) fail('ownership_lost');
+      if (!snapshot.renderers.find(r => r.id === rendererId)?.fresh) fail('state_unavailable');
+    }
+  }
+  async volume(id, token, device, lease, value) {
+    this.volumeEvidence(id, token, lease);
+    // A cloud echo or queued slider event must not repeat an uncertain write.
+    // Only a genuinely fresh selected lease can clear this write barrier.
+    if (lease.volumeUncertain) return {accepted: false, applied: null,
+      error: 'volume_command_uncertain', ownershipRetained: true, attempts: 0};
+    const diagnostic = {at: this.now(), connection: 'node_to_renderer', endpoint: 'RenderingControl',
+      command: 'SetRoomVolume', rendererRole: 'virtual', attempts: 1, outcome: 'pending'};
+    this.volumeCommands.set(id, diagnostic);
+    while (this.volumeCommands.size > 50) this.volumeCommands.delete(this.volumeCommands.keys().next().value);
+    const started = performance.now();
+    let commandError = null;
+    try {
+      await deadline(rendererCommand(device, 'setRoomVolume', [id, value]), this.timeoutMs,
+        Object.assign(new Error('Command deadline exceeded'), {code: 'ECOMMANDTIMEOUT'}));
+      diagnostic.soapStatus = 200;
+    } catch (error) {
+      commandError = error;
+      const codes = ['ECOMMANDTIMEOUT','ECONNRESET','ECONNREFUSED','ETIMEDOUT','EHOSTUNREACH','ENOACTION','ENOSERVICE','EUPNP'];
+      diagnostic.code = codes.includes(error?.code) ? error.code : 'command_failed';
+      if (error?.code === 'EUPNP') {
+        if (/^[1-9]\d{2}$/.test(String(error.errorCode))) diagnostic.upnpErrorCode = Number(error.errorCode);
+        if (Number.isInteger(error.statusCode) && error.statusCode >= 400 && error.statusCode <= 599) diagnostic.soapStatus = error.statusCode;
+      }
+    }
+    diagnostic.elapsedMs = Math.round(performance.now() - started);
+    // The mutation is never retried, even when the readback matches. Obtain
+    // complete new source evidence, not merely transport PLAYING or a getter.
+    const before = new Map(lease.ids.map(rendererId => [rendererId, this.store.raw.get(rendererId)]));
+    const observationStart = this.now();
+    try {
+      await this.refresh(id, token);
+      this.volumeEvidence(id, token, lease);
+      const snapshot = this.store.snapshot();
+      for (const rendererId of lease.ids) {
+        if (before.get(rendererId) === this.store.raw.get(rendererId) ||
+            snapshot.renderers.find(r => r.id === rendererId)?.observedAt < observationStart) fail('state_unavailable');
+      }
+      diagnostic.ownership = 'confirmed';
+      const readStart = performance.now();
+      try {
+        const readback = await deadline(rendererCommand(device, 'getRoomVolume', [id]), this.timeoutMs);
+        const volume = Number(readback.CurrentVolume);
+        if (!/^\d{1,3}$/.test(String(readback.CurrentVolume)) || !Number.isInteger(volume) || volume < 0 || volume > 100) throw new Error('Invalid volume readback');
+        diagnostic.observedVolume = volume;
+        diagnostic.readback = 'success';
+      } catch { diagnostic.readback = 'failed'; }
+      diagnostic.readbackElapsedMs = Math.round(performance.now() - readStart);
+      this.volumeEvidence(id, token, lease);
+    } catch {
+      diagnostic.ownership = 'unavailable';
+      diagnostic.outcome = 'failed_closed';
+      this.revoke(id, 'volume_ownership_unconfirmed');
+      fail('command_failed_or_timed_out');
+    }
+    if (commandError || diagnostic.observedVolume !== value) {
+      lease.volumeUncertain = true;
+      diagnostic.outcome = commandError?.code === 'EUPNP' ? 'rejected'
+        : commandError ? 'uncertain' : 'not_confirmed';
+      return {accepted: false, applied: null, error: 'volume_command_uncertain', ownershipRetained: true,
+        attempts: 1, ...(diagnostic.observedVolume == null ? {} : {observedVolume: diagnostic.observedVolume})};
+    }
+    diagnostic.outcome = 'confirmed';
+    return {accepted: true, applied: true, observedVolume: diagnostic.observedVolume};
   }
   async dispatch(request) {
     const {roomId, action, token} = request;
@@ -286,6 +365,7 @@ class Controller {
       if (!uris(targetRaw).some(uri => lease.expected.has(uri)) || this.room(id).source === 'spotify') {
         this.revoke(id, 'owned_source_guard_failed'); fail('ownership_lost');
       }
+      if (action === 'volume') return this.volume(id, token, device, lease, value);
       const methods = {pause: ['pause', false], resume: ['play', false], stop: ['stop', false],
         volume: ['setVolume', value, false], seek: ['seek', 'REL_TIME', [Math.floor((value || 0)/3600000), Math.floor((value || 0)/60000)%60, Math.floor((value || 0)/1000)%60].map(v=>String(v).padStart(2,'0')).join(':')]};
       const result = await this.action(id, token, device, ...methods[action]);

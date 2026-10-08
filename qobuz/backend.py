@@ -14,6 +14,10 @@ class SeekUnsupported(Exception):
     """A definite renderer rejection, not loss of playback ownership."""
 
 
+class VolumeUncertain(Exception):
+    """Volume outcome is unconfirmed, but fresh Qobuz ownership is retained."""
+
+
 class AudioRelay:
     def __init__(self, app, address, port):
         self.address, self.port = address, port
@@ -64,11 +68,14 @@ class RaumfeldBackend(AudioBackend):
         self.stopped_polls = 0
         self.last_playback_command = None
         self.last_control_error = None
+        self.last_volume_result = None
+        self.last_release_reason = None
 
     async def select(self, selection_id):
         await self.release()
         result = await self.client.control(self.room_id, 'select', selectionId=selection_id)
         self.token = result['token']
+        self.last_release_reason = None
 
     async def release(self):
         token, self.token = self.token, None
@@ -86,6 +93,19 @@ class RaumfeldBackend(AudioBackend):
                 command_record = {'action': action, 'result': 'pending'}
                 self.last_playback_command = command_record
             result = await self.client.control(self.room_id, action, token=self.token, **kwargs)
+            if action == 'volume':
+                self.last_volume_result = {'controlAPI': result.get('controlAPI'),
+                    'observedVolume': result.get('observedVolume'), 'attempts': result.get('attempts', 1)}
+                if (result.get('accepted') is False and result.get('applied') is None
+                        and result.get('error') == 'volume_command_uncertain'
+                        and result.get('ownershipRetained') is True):
+                    command_record['result'] = 'uncertain'
+                    self.last_control_error = 'volume_command_uncertain'
+                    return result
+                if (result.get('accepted') is not True or result.get('applied') is not True
+                        or type(result.get('observedVolume')) is not int
+                        or result['observedVolume'] != kwargs.get('value')):
+                    raise OwnershipLost('control_request_failed')
             if (action == 'seek' and result.get('accepted') is False
                     and result.get('applied') is False and result.get('error') == 'seek_mode_not_supported'
                     and result.get('upnpErrorCode') == 710):
@@ -97,6 +117,8 @@ class RaumfeldBackend(AudioBackend):
                 self.last_control_error = None
             return result
         except Exception as error:
+            if action == 'volume':
+                self.last_volume_result = {'controlAPI': getattr(error, 'control_api_diagnostic', None)}
             known = {'ownership_lost', 'room_not_enabled', 'room_not_found', 'grouped_room_not_supported',
                      'state_unavailable', 'room_membership_changed', 'observation_busy', 'play_required',
                      'command_failed_or_timed_out', 'zone_unavailable', 'renderer_unavailable',
@@ -104,11 +126,17 @@ class RaumfeldBackend(AudioBackend):
             self.last_control_error = str(error) if str(error) in known else 'control_request_failed'
             if action != 'heartbeat':
                 command_record['result'] = 'failed'
-            await self.external()
+            reason = ('control_api_unavailable' if getattr(error, 'control_api_diagnostic', {}).get('exception') == 'connection_error'
+                else 'observations_unavailable' if self.last_control_error == 'state_unavailable'
+                else 'command_failure' if self.last_control_error == 'command_failed_or_timed_out'
+                else 'lease_or_source_lost' if self.last_control_error == 'ownership_lost' else 'control_failure')
+            await self.external(reason)
             raise
 
-    async def external(self):
+    async def external(self, reason='lease_or_source_lost'):
         had_token = self.token is not None
+        if had_token:
+            self.last_release_reason = reason
         await self.release()
         if had_token and self.on_external:
             await self.on_external()
@@ -143,7 +171,7 @@ class RaumfeldBackend(AudioBackend):
                 state = await self.client.state()
                 room = next((r for r in state['rooms'] if r['id'] == self.room_id), None)
                 if not room or (not room['fresh'] and not room.get('transitioning')):
-                    await self.external()
+                    await self.external('observations_unavailable')
                 else:
                     target = room['zoneId'] or room['rendererIds'][0]
                     self.sample = next((r for r in state['renderers'] if r['id'] == target), {})
@@ -221,9 +249,15 @@ class RaumfeldBackend(AudioBackend):
     async def set_volume(self, level):
         if not self.started:
             return  # Initial cloud snapshots must not change native volume.
-        await self.command('volume', value=int(level))
+        result = await self.command('volume', value=int(level))
+        if result.get('error') == 'volume_command_uncertain':
+            raise VolumeUncertain('Room volume outcome unconfirmed')
 
     async def get_volume(self):
+        if self.last_volume_result:
+            observed = self.last_volume_result.get('observedVolume')
+            if isinstance(observed, int) and 0 <= observed <= 100:
+                return observed
         return self.sample.get('volume') or 0
 
     async def get_state(self):

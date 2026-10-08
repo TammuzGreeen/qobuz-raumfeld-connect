@@ -10,7 +10,7 @@ from aiohttp.test_utils import TestServer
 from qobuz_proxy.auth.api_client import QobuzAPIClient
 from qobuz_proxy.playback import MetadataService
 from qobuz.client import RaumfeldClient, OwnershipLost
-from qobuz.backend import RaumfeldBackend, SeekUnsupported
+from qobuz.backend import RaumfeldBackend, SeekUnsupported, VolumeUncertain
 from qobuz.service import Service, save_json
 from qobuz_proxy.backends.types import BackendTrackMetadata
 
@@ -95,6 +95,22 @@ async def run():
         await backend.pause()
         await backend.resume()
         print('Rejected Seek 710 preserves ownership and subsequent controls')
+        child.stdin.write('volume-reset\n');child.stdin.flush()
+        await asyncio.wait_for(asyncio.to_thread(child.stdout.readline), timeout=5)
+        try:
+            await backend.set_volume(41)
+            raise AssertionError('Reset volume was falsely reported successful')
+        except VolumeUncertain:
+            pass
+        assert backend.token and backend.started
+        assert backend.last_volume_result['controlAPI']['httpStatus'] == 200
+        diagnostic = (await client.state())['rooms'][0]['lastVolumeCommand']
+        assert diagnostic['connection'] == 'node_to_renderer'
+        assert diagnostic['code'] == 'ECONNRESET'
+        assert diagnostic['ownership'] == 'confirmed'
+        await backend.pause()
+        await backend.resume()
+        print('SOAP volume reset keeps only freshly confirmed ownership; Python control API remains HTTP 200')
         child.stdin.write('native\n');child.stdin.flush()
         await asyncio.wait_for(asyncio.to_thread(child.stdout.readline), timeout=5)
         try:

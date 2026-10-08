@@ -86,7 +86,10 @@ class Receiver:
                 'protocolError': dict(self.protocol_error) if self.protocol_error else None,
                 'lastPlaybackCommand': dict(self.backend.last_playback_command)
                     if self.backend and self.backend.last_playback_command else None,
-                'lastControlError': self.backend.last_control_error if self.backend else None}
+                'lastControlError': self.backend.last_control_error if self.backend else None,
+                'lastVolumeResult': dict(self.backend.last_volume_result)
+                    if self.backend and self.backend.last_volume_result else None,
+                'lastReleaseReason': self.backend.last_release_reason if self.backend else None}
 
     def dispatch(self, handler, msg_type, message):
         self.message_counts[str(msg_type)] = self.message_counts.get(str(msg_type), 0) + 1

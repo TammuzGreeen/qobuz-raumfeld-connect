@@ -6,7 +6,7 @@ const {Controller} = require('../raumkernel/control');
 
 function setup({grouped = false, unassigned = false, timeoutMs = 50, handoffMs = 40} = {}) {
   let now = Date.now(), uri = 'spotify://playback';
-  const calls = [];
+  const calls = [], soapCalls=[];
   const store = new StateStore({now: () => now});
   store.hostFound('192.0.2.1');
   const room = {$: {udn:'room-1',name:'Living'},renderer:[{$:{udn:'physical-1'}}]};
@@ -22,7 +22,11 @@ function setup({grouped = false, unassigned = false, timeoutMs = 50, handoffMs =
     async play() {calls.push('play');}, async stop() {calls.push('stop');}, async pause() {calls.push('pause');},
     async seek(unit, target) {calls.push(['seek',unit,target]);}, async setVolume(value) {calls.push(['volume',value]);},
   };
+  device.volume=35;
+  device.setRoomVolume=async(roomId,value)=>{assert.equal(roomId,'room-1');await device.setVolume(value);device.volume=value;};
+  device.getRoomVolume=async()=>({CurrentVolume:String(device.volume)});
   device.callAction = async(service, action, params) => {
+    soapCalls.push({service,action,params});
     assert.equal(params.InstanceID,0);
     const commands = {
       SetAVTransportURI:()=>device.setAvTransportUri(params.CurrentURI,params.CurrentURIMetaData),
@@ -30,6 +34,8 @@ function setup({grouped = false, unassigned = false, timeoutMs = 50, handoffMs =
       Pause:()=>device.pause(),Stop:()=>device.stop(),
       Seek:()=>device.seek(params.Unit,params.Target),
       SetVolume:()=>{assert.equal(params.Channel,'Master');return device.setVolume(params.DesiredVolume);},
+      SetRoomVolume:()=>device.setRoomVolume(params.Room,params.DesiredVolume),
+      GetRoomVolume:()=>{assert.equal(params.Room,'room-1');return device.getRoomVolume();},
     };
     return commands[action]();
   };
@@ -44,7 +50,7 @@ function setup({grouped = false, unassigned = false, timeoutMs = 50, handoffMs =
   const select = async id => controller.dispatch({roomId:'room-1',action:'select',selectionId:id||'selection-0001'});
   const command = (token,action,extra={}) => controller.dispatch({roomId:'room-1',token,action,...extra});
   const play = token => command(token,'play',{url:'http://192.0.2.2:8790/audio/'+'a'.repeat(32),metadata:{title:'A & B'}});
-  return {controller,store,observer,device,calls,select,command,play,advance:ms=>now+=ms,
+  return {controller,store,observer,device,calls,soapCalls,select,command,play,advance:ms=>now+=ms,
     native:()=>{uri='spotify://new-session';store.emit('source','physical-1',uri);}};
 }
 
@@ -293,6 +299,55 @@ test('Seek 710 cannot preserve a lease revoked concurrently by Spotify',async()=
   assert.equal(loss(s).reason,'unexpected_source_uri');
 });
 const forwardingURI = 'http://192.0.2.1:55001/zone-1/room-1/physical-1/audio.flac?punch=1';
+test('handoff observation ordering reproduces premature physical-source rejection',async()=>{
+  // Characterization of the current bug, not the desired fixed behavior.
+  // Both orders provide the same fresh, topology-linked forwarding and relay.
+  for (const physicalFirst of [true,false]) {
+    const s=setup();
+    const {token}=await s.select();
+    let loaded=false, relay;
+    const load=s.device.setAvTransportUri, poll=s.observer.poll;
+    s.device.setAvTransportUri=async(...args)=>{
+      await load(...args);loaded=true;relay=args[0];
+    };
+    s.observer.poll=async()=>{
+      if(!loaded)return poll();
+      const physical=()=>s.store.observe('physical-1',{
+        AVTransportURI:forwardingURI,CurrentTransportState:'PLAYING'});
+      const virtual=()=>s.store.observe('zone-1',{
+        AVTransportURI:relay,CurrentTransportState:'STOPPED'});
+      if(physicalFirst){physical();virtual();}else{virtual();physical();}
+    };
+    if(physicalFirst){
+      await assert.rejects(s.play(token),/ownership_lost/);
+      assert.equal(loss(s).reason,'unexpected_source_uri');
+      assert.equal(loss(s).phase,'transition');
+      assert.equal(loss(s).rendererRole,'physical');
+      assert.deepEqual(s.calls,['load']);
+      assert.equal(s.store.raw.get('zone-1').AVTransportURI,relay);
+      await assert.rejects(s.select(),/selection_already_used/);
+    }else{
+      await s.play(token);
+      assert.equal(loss(s),null);
+      assert.deepEqual(s.calls,['load','play']);
+      assert.equal(s.controller.decorate(s.store.snapshot()).rooms[0].owned,true);
+    }
+  }
+});
+test('handoff observation notification during loading reproduces the same race',async()=>{
+  const s=setup();const {token}=await s.select();
+  const load=s.device.setAvTransportUri;
+  s.device.setAvTransportUri=async(...args)=>{
+    await load(...args);
+    // A device notification arrives before the post-load read-only poll.
+    s.store.emit('source','physical-1',forwardingURI);
+  };
+  await assert.rejects(s.play(token),/ownership_lost/);
+  assert.equal(loss(s).reason,'unexpected_source_uri');
+  assert.equal(loss(s).phase,'transition');
+  assert.equal(loss(s).rendererRole,'physical');
+  assert.deepEqual(s.calls,['load']);
+});
 test('topology-linked physical forwarding preserves only freshly confirmed virtual ownership',async()=>{
   const s=setup();const {token}=await s.select();await s.play(token);
   s.store.observe('physical-1',{AVTransportURI:forwardingURI,TransportState:'PLAYING'});
@@ -350,4 +405,106 @@ test('physical Spotify still revokes after a recognized forwarding stream',async
   s.native();await assert.rejects(s.command(token,'pause'),/ownership_lost/);
   assert.equal(loss(s).source,'spotify');
   assert.deepEqual(s.calls,['load','play']);
+});
+test('selected-room volume uses one virtual SetRoomVolume with exact room UDN and readback',async()=>{
+  const s=setup();const {token}=await s.select();await s.play(token);
+  assert.deepEqual(await s.command(token,'volume',{value:36}),{accepted:true,applied:true,observedVolume:36});
+  assert.deepEqual(s.soapCalls.filter(c=>c.service==='RenderingControl'),[
+    {service:'RenderingControl',action:'SetRoomVolume',params:{InstanceID:0,Room:'room-1',DesiredVolume:36}},
+    {service:'RenderingControl',action:'GetRoomVolume',params:{InstanceID:0,Room:'room-1'}},
+  ]);
+  const diagnostic=s.controller.decorate(s.store.snapshot()).rooms[0].lastVolumeCommand;
+  assert.equal(diagnostic.command,'SetRoomVolume');assert.equal(diagnostic.outcome,'confirmed');
+  assert.equal(diagnostic.soapStatus,200);assert.equal(diagnostic.attempts,1);
+  assert.equal(s.controller.decorate(s.store.snapshot()).rooms[0].owned,true);
+});
+test('renderer SOAP reset retains only newly confirmed ownership and never retries queued volume',async()=>{
+  const s=setup();const {token}=await s.select();await s.play(token);
+  s.device.setRoomVolume=async()=>{throw Object.assign(new Error('PRIVATE URI'),{code:'ECONNRESET'});};
+  const result=await s.command(token,'volume',{value:36});
+  assert.equal(result.applied,null);assert.equal(result.ownershipRetained,true);
+  assert.equal(result.observedVolume,35);
+  await s.command(token,'pause');await s.command(token,'resume');
+  const blocked=await s.command(token,'volume',{value:37});assert.equal(blocked.attempts,0);
+  assert.equal(s.soapCalls.filter(c=>c.action==='SetRoomVolume').length,1);
+  assert.equal(s.soapCalls.filter(c=>c.action==='SetVolume').length,0);
+  const diagnostic=s.controller.decorate(s.store.snapshot()).rooms[0].lastVolumeCommand;
+  assert.equal(diagnostic.connection,'node_to_renderer');assert.equal(diagnostic.code,'ECONNRESET');
+  assert.equal(diagnostic.ownership,'confirmed');assert.equal(diagnostic.outcome,'uncertain');
+  assert.ok(!JSON.stringify(diagnostic).includes('PRIVATE'));
+  s.native();await assert.rejects(s.command(token,'resume'),/ownership_lost/);
+  await assert.rejects(s.select(),/selection_already_used/);
+  const fresh=await s.select('new-explicit-selection');
+  assert.notEqual(fresh.token,token);
+  assert.equal(s.controller.leases.get('room-1').volumeUncertain,undefined);
+});
+test('volume reset fails closed when complete new observations are missing',async()=>{
+  const s=setup();const {token}=await s.select();await s.play(token);
+  s.device.setRoomVolume=async()=>{
+    s.observer.poll=async()=>{};
+    throw Object.assign(new Error('reset'),{code:'ECONNRESET'});
+  };
+  await assert.rejects(s.command(token,'volume',{value:36}),/command_failed_or_timed_out/);
+  await assert.rejects(s.command(token,'heartbeat'),/ownership_lost/);
+  assert.equal(loss(s).reason,'volume_ownership_unconfirmed');
+  assert.equal(s.soapCalls.filter(c=>c.action==='SetRoomVolume').length,1);
+  assert.equal(s.soapCalls.filter(c=>c.action==='GetRoomVolume').length,0);
+});
+test('volume reset cannot mask an external takeover, stale state or changed membership',async()=>{
+  for(const invalidate of [
+    s=>s.native(),
+    s=>{s.store.emit('source','zone-1','https://example.test/other');},
+    s=>{s.store.renderers.get('zone-1').observedAt=0;s.observer.poll=async()=>{};},
+    s=>{s.store.zones[0].roomIds.push('other-room');s.store.emit('topology');},
+  ]){
+    const s=setup();const {token}=await s.select();await s.play(token);
+    s.device.setRoomVolume=async()=>{invalidate(s);throw Object.assign(new Error('reset'),{code:'ECONNRESET'});};
+    await assert.rejects(s.command(token,'volume',{value:36}),/command_failed_or_timed_out/);
+    await assert.rejects(s.command(token,'heartbeat'),/ownership_lost/);
+    assert.equal(s.soapCalls.filter(c=>c.action==='SetRoomVolume').length,1);
+  }
+});
+test('timed-out volume stays uncertain even with matching readback and never repeats',async()=>{
+  const s=setup({timeoutMs:10});const {token}=await s.select();await s.play(token);
+  s.device.volume=36;s.device.setRoomVolume=()=>new Promise(()=>{});
+  const result=await s.command(token,'volume',{value:36});
+  assert.equal(result.applied,null);assert.equal(result.observedVolume,36);
+  assert.equal(result.ownershipRetained,true);
+  assert.equal(s.controller.decorate(s.store.snapshot()).rooms[0].lastVolumeCommand.code,'ECOMMANDTIMEOUT');
+  await s.command(token,'volume',{value:36});
+  assert.equal(s.soapCalls.filter(c=>c.action==='SetRoomVolume').length,1);
+});
+test('missing readback does not invent applied volume while authoritative source proof holds',async()=>{
+  const s=setup();const {token}=await s.select();await s.play(token);
+  s.device.getRoomVolume=async()=>{throw Object.assign(new Error('read reset'),{code:'ECONNRESET'});};
+  const result=await s.command(token,'volume',{value:36});
+  assert.equal(result.applied,null);assert.equal(result.ownershipRetained,true);
+  assert.equal(result.observedVolume,undefined);
+  assert.equal(s.controller.decorate(s.store.snapshot()).rooms[0].lastVolumeCommand.readback,'failed');
+  await s.command(token,'pause');
+});
+test('acknowledged setter with mismatched readback is not falsely accepted or retried',async()=>{
+  const s=setup();const {token}=await s.select();await s.play(token);
+  s.device.getRoomVolume=async()=>({CurrentVolume:'34'});
+  const result=await s.command(token,'volume',{value:36});
+  assert.equal(result.applied,null);assert.equal(result.observedVolume,34);
+  assert.equal(s.controller.decorate(s.store.snapshot()).rooms[0].lastVolumeCommand.outcome,'not_confirmed');
+  await s.command(token,'volume',{value:36});
+  assert.equal(s.soapCalls.filter(c=>c.action==='SetRoomVolume').length,1);
+});
+test('takeover during volume readback fails closed instead of reporting recovery',async()=>{
+  const s=setup();const {token}=await s.select();await s.play(token);
+  s.device.getRoomVolume=async()=>{s.native();return {CurrentVolume:'36'};};
+  await assert.rejects(s.command(token,'volume',{value:36}),/command_failed_or_timed_out/);
+  assert.equal(loss(s).source,'spotify');
+  assert.equal(s.controller.decorate(s.store.snapshot()).rooms[0].lastVolumeCommand.outcome,'failed_closed');
+});
+test('volume command diagnostics are copied, redacted and schema-valid',async()=>{
+  const s=setup();const {token}=await s.select();await s.play(token);await s.command(token,'volume',{value:36});
+  const snapshot=s.controller.decorate(s.store.snapshot());
+  const Ajv=require('ajv'),validate=new Ajv().compile(require('../shared/api.schema.json'));
+  assert.ok(validate(snapshot),JSON.stringify(validate.errors));
+  assert.ok(!JSON.stringify(snapshot.rooms[0].lastVolumeCommand).includes('room-1'));
+  snapshot.rooms[0].lastVolumeCommand.outcome='modified';
+  assert.equal(s.controller.decorate(s.store.snapshot()).rooms[0].lastVolumeCommand.outcome,'confirmed');
 });

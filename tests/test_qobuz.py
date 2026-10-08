@@ -8,11 +8,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 from aiohttp.test_utils import TestClient, TestServer
-from qobuz.backend import RaumfeldBackend, AudioRelay, SeekUnsupported
+from qobuz.backend import RaumfeldBackend, AudioRelay, SeekUnsupported, VolumeUncertain
 from qobuz.player import RaumfeldPlayer
 from qobuz_proxy.playback import QobuzQueue
 from qobuz_proxy.backends.types import PlaybackState
-from qobuz.client import OwnershipLost
+from qobuz.client import OwnershipLost, RaumfeldClient
 from qobuz.receiver import Receiver
 from qobuz.service import Service, save_json, load_json, local_address
 from qobuz_proxy.backends.types import BackendTrackMetadata
@@ -136,6 +136,77 @@ class BackendTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(OwnershipLost):
                 await self.backend.observed_position()
             self.assertIsNone(self.backend.token)
+
+    async def test_uncertain_volume_reports_readback_without_releasing_or_claiming_requested_level(self):
+        await self.backend.select('explicit-selection')
+        self.backend.started = True
+        self.backend.on_external = AsyncMock()
+        self.client.control.return_value = {'accepted': False, 'applied': None,
+            'error': 'volume_command_uncertain', 'ownershipRetained': True,
+            'observedVolume': 35, 'attempts': 1,
+            'controlAPI': {'connection': 'python_to_node', 'httpStatus': 200}}
+        player = RaumfeldPlayer(queue=QobuzQueue(), metadata_service=MagicMock(), backend=self.backend)
+        player._volume = 35
+        player._report_volume_change = AsyncMock()
+        with self.assertRaises(VolumeUncertain):
+            await player.set_volume(36)
+        self.assertEqual(player._volume, 35)
+        self.assertEqual(await self.backend.get_volume(), 35)
+        self.assertEqual(self.backend.last_playback_command, {'action': 'volume', 'result': 'uncertain'})
+        self.assertEqual(self.backend.last_control_error, 'volume_command_uncertain')
+        self.assertEqual(self.backend.token, 'lease-1')
+        self.backend.on_external.assert_not_called()
+        self.assertEqual([c.args[1] for c in self.client.control.call_args_list], ['select', 'volume'])
+
+    async def test_volume_api_failure_and_missing_ownership_proof_still_release(self):
+        for failure in [OwnershipLost('command_failed_or_timed_out'),
+                        ConnectionResetError('PRIVATE endpoint'),
+                        {'accepted': False, 'applied': None, 'error': 'volume_command_uncertain'}]:
+            self.client.control.side_effect = None
+            self.client.control.return_value = {'token': 'lease-1'}
+            await self.backend.select('explicit-selection')
+            self.backend.started = True
+            if isinstance(failure, Exception):
+                self.client.control.side_effect = failure
+            else:
+                self.client.control.return_value = failure
+            with self.assertRaises(Exception):
+                await self.backend.set_volume(36)
+            self.assertIsNone(self.backend.token)
+
+
+class ControlConnectionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_http_node_response_distinguishes_renderer_uncertainty_from_api_reset(self):
+        from aiohttp import web
+        mode = 'response'
+        count = 0
+        async def control(request):
+            nonlocal count
+            count += 1
+            await request.json()
+            if mode == 'reset':
+                request.transport.abort()
+                return web.Response()
+            return web.json_response({'apiVersion': '1', 'accepted': False, 'applied': None,
+                'error': 'volume_command_uncertain', 'ownershipRetained': True, 'attempts': 1})
+        app = web.Application()
+        app.router.add_post('/v1/control', control)
+        server = TestServer(app)
+        await server.start_server()
+        try:
+            client = RaumfeldClient(str(server.make_url('/')), 'test-token')
+            result = await client.control('synthetic-room', 'volume', token='synthetic-lease', value=36)
+            self.assertEqual(result['controlAPI']['connection'], 'python_to_node')
+            self.assertEqual(result['controlAPI']['httpStatus'], 200)
+            mode = 'reset'
+            with self.assertRaises(Exception) as error:
+                await client.control('synthetic-room', 'volume', token='synthetic-lease', value=36)
+            self.assertEqual(error.exception.control_api_diagnostic['exception'], 'connection_error')
+            self.assertNotIn('httpStatus', error.exception.control_api_diagnostic)
+            self.assertNotIn('synthetic-lease', str(error.exception.control_api_diagnostic))
+            self.assertEqual(count, 2)  # One explicit request per call, never a retry.
+        finally:
+            await server.close()
 
 
 class SetupTests(unittest.IsolatedAsyncioTestCase):
@@ -315,6 +386,14 @@ class ReceiverTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(receiver.discovery.get_received_tokens())
             self.assertEqual(receiver.discovery._current_session_id, '')
             self.assertEqual(receiver.diagnostics()['error'], 'selection_replayed_or_limit')
+            fresh_tokens = ConnectTokens(session_id='fresh-explicit-test-session',
+                ws_token=JWTConnectToken('synthetic-token', 9999999999, 'wss://example.test'))
+            selections_before = sum(c.args[1] == 'select' for c in node.control.call_args_list)
+            self.assertTrue(await receiver.select(fresh_tokens))
+            self.assertEqual(sum(c.args[1] == 'select' for c in node.control.call_args_list), selections_before + 1)
+            self.assertEqual(receiver.discovery._current_session_id, 'fresh-explicit-test-session')
+            self.assertEqual(receiver.diagnostics()['stage'], 'session_started')
+            self.assertIsNone(receiver.diagnostics()['error'])
             await receiver.stop()
         self.assertFalse(any(c.args[1] in ('play','stop','volume') for c in node.control.call_args_list))
 

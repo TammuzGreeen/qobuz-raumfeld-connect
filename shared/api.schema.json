@@ -90,7 +90,7 @@
           "additionalProperties": false,
           "required": ["reason", "at", "phase"],
           "properties": {
-            "reason": {"enum": ["host_lost", "renderer_removed", "topology_changed", "unexpected_source_uri", "token_mismatch", "lease_expired", "room_guard_failed", "physical_membership_changed", "command_failed_or_timed_out", "released", "zone_unavailable", "renderer_unavailable", "source_not_confirmed", "spotify_still_active", "owned_source_guard_failed"]},
+            "reason": {"enum": ["host_lost", "renderer_removed", "topology_changed", "unexpected_source_uri", "token_mismatch", "lease_expired", "room_guard_failed", "physical_membership_changed", "command_failed_or_timed_out", "released", "zone_unavailable", "renderer_unavailable", "source_not_confirmed", "spotify_still_active", "owned_source_guard_failed", "volume_ownership_unconfirmed"]},
             "at": {"type": "number"},
             "phase": {"enum": ["transition", "selection", "owned"]},
             "rendererRole": {"enum": ["physical", "virtual"]},
@@ -99,6 +99,27 @@
             "upnpErrorCode": {"type": "integer", "minimum": 100, "maximum": 999},
             "source": {"$ref": "#/definitions/source"},
             "uriKind": {"enum": ["spotify", "empty", "qobuz_relay", "internal_transport", "external"]}
+          }
+        },
+        "lastVolumeCommand": {
+          "type": ["object", "null"], "additionalProperties": false,
+          "required": ["at", "connection", "endpoint", "command", "rendererRole", "attempts", "outcome"],
+          "properties": {
+            "at": {"type": "number"},
+            "connection": {"enum": ["node_to_renderer"]},
+            "endpoint": {"enum": ["RenderingControl"]},
+            "command": {"enum": ["SetRoomVolume"]},
+            "rendererRole": {"enum": ["virtual"]},
+            "attempts": {"enum": [1]},
+            "outcome": {"enum": ["pending", "confirmed", "uncertain", "rejected", "not_confirmed", "failed_closed"]},
+            "elapsedMs": {"type": "integer", "minimum": 0},
+            "readbackElapsedMs": {"type": "integer", "minimum": 0},
+            "soapStatus": {"type": "integer", "minimum": 100, "maximum": 599},
+            "code": {"enum": ["ECOMMANDTIMEOUT", "ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "EHOSTUNREACH", "ENOACTION", "ENOSERVICE", "EUPNP", "command_failed"]},
+            "upnpErrorCode": {"type": "integer", "minimum": 100, "maximum": 999},
+            "ownership": {"enum": ["confirmed", "unavailable"]},
+            "readback": {"enum": ["success", "failed"]},
+            "observedVolume": {"type": "integer", "minimum": 0, "maximum": 100}
           }
         }
       }
