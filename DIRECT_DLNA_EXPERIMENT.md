@@ -1,9 +1,31 @@
 # One-room direct-DLNA migration experiment
 
-This is an isolated opt-in implementation, not a deployed alternative. No live
-account calls, speaker commands, zone repairs or deployment updates were performed
-for its tests. The current runtime configuration/image were privately backed up
-for rollback, without changing the app or `/data`.
+This is an isolated opt-in implementation. Its tests used no live account calls,
+speaker commands or zone repairs. After explicit user approval, the verified
+candidate was deployed by changing only the app image. Runtime configuration and
+the preceding image were privately backed up; `/data` was not replaced.
+
+## Approved deployment verification
+
+- Candidate: `raumfeld-connect:direct-dlna-one-room-review`, implementation revision
+  `8d6c43488fe7ce13c1930b353f0d9d43ed560a76`.
+- Image config digest:
+  `sha256:034714b10e73f64bd21a2043ff42365a42f9b192cfcfb739cc9e121049355e31`.
+- Healthy, authenticated, topology ready; one configured/advertised room at CD
+  quality. Credentials, selected-room configuration, mounts, previous environment
+  values and host networking were verified preserved. Direct mode comes from the
+  candidate image's embedded flag, not a runtime configuration replacement.
+- No restarts after startup; receiver waiting for app, zero selected sessions and
+  zero started playback sessions at verification. No deployment/test code sent
+  playback, volume or zone commands. Startup used the existing authentication
+  lifecycle; no real playback/scrobble reporting acceptance is claimed.
+- TrueNAS first rejected the string payload for its object-valued compose field;
+  the old image/configuration remained healthy and unchanged. After checking the
+  declared schema, the object payload completed the approved image-only update.
+- Rollback: retained `raumfeld-connect:handoff-order-review` and private previous
+  configuration/image archive. Audible playback, physical controls, advancement,
+  account-visible reports and real Spotify takeover are still hardware-unverified
+  on this candidate.
 
 ## Implemented candidate
 
