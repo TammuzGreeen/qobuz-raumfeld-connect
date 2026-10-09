@@ -25,7 +25,7 @@ function fixture({assigned = false, grouped = false, timeoutMs = 20} = {}) {
 test('catalog polling never creates an unassigned zone or requires physical source proof', () => {
   const f = fixture();
   for (let i = 0; i < 20; i++) assert.deepEqual(f.companion.catalog(), [
-    {roomId: 'synthetic-room', assigned: false, endpoint: null},
+    {roomId: 'synthetic-room', assigned: false, endpoint: null, rendererIds: ['synthetic-physical'], spotifyVersion: 0},
   ]);
   assert.deepEqual(f.calls, []);
   assert.equal(f.companion.leases, undefined);
@@ -101,6 +101,18 @@ test('renderer identity and description origin are checked without SOAP', () => 
   }
   f.observer.devices.set('synthetic-zone', {device: {udn: () => 'wrong-zone', upnpClient: {url: 'http://example.test/device'}}});
   assert.equal(f.companion.catalog()[0].endpoint, null);
+  assert.equal(f.calls.length, 0);
+});
+
+test('native source notifications and new Spotify observations increment evidence, not repeated polls', () => {
+  const f = fixture();
+  assert.equal(f.companion.catalog()[0].spotifyVersion, 0);
+  f.store.observe('synthetic-physical', {AVTransportURI: 'spotify:synthetic-source'});
+  const version = f.companion.catalog()[0].spotifyVersion;
+  f.store.observe('synthetic-physical', {AVTransportURI: 'spotify:synthetic-source'});
+  assert.equal(f.companion.catalog()[0].spotifyVersion, version);
+  f.store.emit('nativeSpotify', 'synthetic-physical');
+  assert.equal(f.companion.catalog()[0].spotifyVersion, version + 1);
   assert.equal(f.calls.length, 0);
 });
 

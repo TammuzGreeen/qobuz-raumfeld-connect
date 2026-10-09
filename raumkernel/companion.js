@@ -13,6 +13,25 @@ class Companion {
     // An uncertain mutation cannot be retried by another HTTP request. Reset
     // only after discovery positively observes an assigned zone.
     this.uncertain = new Set();
+    this.spotifyVersions = new Map();
+    const spotify = id => {
+      for (const room of this.store.rooms) {
+        if (room.rendererIds.includes(id) || room.zoneId === id) {
+          this.spotifyVersions.set(room.id, (this.spotifyVersions.get(room.id) || 0) + 1);
+        }
+      }
+    };
+    store.on('nativeSpotify', spotify);
+    store.on('source', (id, uri) => {
+      if (typeof uri === 'string' && /spotify:|spotifyconnect/i.test(uri)) spotify(id);
+    });
+    const lastSpotify = new Map();
+    store.on('observation', (id, raw) => {
+      const detected = [raw?.AVTransportURI, raw?.TrackURI, raw?.CurrentTrackURI]
+        .some(uri => typeof uri === 'string' && /spotify:|spotifyconnect/i.test(uri));
+      if (detected && lastSpotify.get(id) !== true) spotify(id);
+      lastSpotify.set(id, detected);
+    });
   }
   fail(code) { throw Object.assign(new Error(code), {status: 409}); }
   room(roomId) {
@@ -39,7 +58,9 @@ class Companion {
   lookup(roomId) {
     const room = this.room(roomId);
     if (room.zoneId) this.uncertain.delete(roomId);
-    return {roomId, assigned: !!room.zoneId, endpoint: this.endpoint(room)};
+    return {roomId, assigned: !!room.zoneId, endpoint: this.endpoint(room),
+      rendererIds: [...room.rendererIds],
+      spotifyVersion: this.spotifyVersions.get(roomId) || 0};
   }
   catalog() {
     return this.allowedRooms().map(roomId => {

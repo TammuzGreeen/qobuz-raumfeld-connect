@@ -19,8 +19,9 @@ def main():
     children = []
     code = 1
     try:
-        children.append(subprocess.Popen(["node", "raumkernel/main.js"], start_new_session=True))
-        children.append(subprocess.Popen([sys.executable, "-m", "qobuz.service"], start_new_session=True))
+        upstream = os.environ.get('PLAYBACK_PATH') == 'upstream_first'
+        children.append(subprocess.Popen(["node", "raumkernel/companion-main.js" if upstream else "raumkernel/main.js"], start_new_session=True))
+        children.append(subprocess.Popen([sys.executable, "-m", "qobuz.upstream_app" if upstream else "qobuz.service"], start_new_session=True))
         while not stopping and all(p.poll() is None for p in children):
             time.sleep(0.2)
         code = 0 if stopping else 1
