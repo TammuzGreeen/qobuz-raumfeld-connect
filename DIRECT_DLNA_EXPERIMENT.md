@@ -50,7 +50,19 @@ The corrective source change accumulates XML chunks to EOF with the existing
 fragmented-SCPD and cross-fragment size-limit regressions cover this boundary.
 The corrected source's full Python suite passed: 76 tests.
 Replay/admission/source policies are unchanged. A corrected-image deployment needs
-new approval; the running original direct-DLNA candidate remains unchanged.
+new approval; it was not included in approval for the original candidate.
+
+The user subsequently approved and the image-only update to
+`raumfeld-connect:direct-dlna-xml-read-review` completed. Implementation revision:
+`70ae39bc7691c7b87ee2cdd63c3d6430bdbcd335`; image config digest:
+`sha256:a43917b350657ea3a79b5c8fa35de10b33cef71670e0eb11cede5d659e5d6c6e`.
+Post-update verification found healthy/authenticated/direct mode, one advertised
+room at CD quality, fresh topology, unchanged configuration/credentials/mounts/
+environment and zero restarts. The receiver was waiting for the app, with zero
+selected/started sessions. No playback, volume or zone commands were sent by the
+deployment checks. The previous images/configuration remain privately available
+for rollback. Audible playback and retained control on this correction still need
+the user-driven hardware test.
 
 `qobuz/dlna_backend.py` subclasses the pinned upstream DLNABackend/DLNAClient:
 upstream DIDL, state/position polling and ordinary player/reporting behavior remain.
