@@ -2,8 +2,8 @@
 
 ## Status and scope
 
-This branch is a separate upstream-first candidate, **not deployed or
-hardware-accepted**. Build with `PLAYBACK_PATH=upstream_first` to activate the new
+This branch is a separate upstream-first candidate, **deployed with explicit
+user approval, not hardware-accepted**. Build with `PLAYBACK_PATH=upstream_first` to activate the new
 launcher; default builds retain the old guarded path for rollback/comparison.
 No real speaker commands or runtime credential changes are part of preparation.
 
@@ -139,18 +139,36 @@ Git, amd64). Saved config, revision, embedded mode and filesystem layer identiti
 were verified against the built image. Docker's local OCI image ID differs from
 the saved archive config digest; verify the latter when importing the archive.
 
-Read-only deployment preflight confirmed the live image was unchanged/running,
+Read-only pre-deployment checks confirmed the previous live image was unchanged/running,
 host networking, automatic host discovery, one-room/CD configuration, a free
 candidate audio-proxy port, `pull_policy: never`, and no Compose override of the
-embedded playback mode. No app update, image import on the live host, speaker
-commands or runtime storage changes occurred.
+embedded playback mode. Those preflight checks performed no app update, image
+import on the live host, speaker commands or runtime storage changes.
 
-**Ready for separately approved deployment and hardware testing**, not a claim
+**Deployment approved and completed; user-driven hardware acceptance pending**, not a claim
 of actual Android connection stability, audible playback, hardware volume/knob
 behavior, uninterrupted Spotify, real reporting acknowledgement or scrobbling.
 The first checkpoint `2c1b5a8` was pushed to the experiment branch and its remote
 commit verified before implementation continued. Image archives/private preflight
 data are not part of the published source checkpoint.
+
+### Approved deployment verification
+
+After explicit user approval, the saved archive was imported and its config
+digest, filesystem layers, architecture, implementation revision and embedded
+mode verified. The parsed live Compose configuration changed **only its image**.
+An exact private before-state and current-image rollback archive were retained,
+alongside the separately retained known-working rollback.
+
+Post-update checks verified healthy/authenticated upstream application startup,
+one advertised room/CD quality, preserved name/UUID/discovery port, available
+renderer endpoint, unchanged original config/credential file hashes, mounts,
+LAN settings, automatic host discovery and host networking. Only the embedded
+playback mode changed with the image. Exact process arguments confirmed
+`qobuz.upstream_app` and `raumkernel/companion-main.js`, with no legacy service or
+binding/controller entrypoint active. There were zero restarts, an idle speaker
+and no Android session selected at verification. Checks sent no transport,
+volume or zone mutations. Audible playback and real reporting are not claimed.
 
 ```sh
 docker build --build-arg PLAYBACK_PATH=upstream_first \
