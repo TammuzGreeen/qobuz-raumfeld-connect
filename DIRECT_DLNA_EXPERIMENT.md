@@ -29,6 +29,29 @@ the preceding image were privately backed up; `/data` was not replaced.
 
 ## Implemented candidate
 
+### First hardware attempt and local XML-read correction
+
+The user reported a stable phone connection but silence and paused playback;
+unpausing immediately disconnected control and returned playback to the phone.
+Reconnect was explicitly rejected as `selection_replayed`. Diagnostics showed
+successful metadata lookup but no relay registration, URI-load acknowledgement,
+Play acknowledgement or streaming report. The service remained authenticated and
+topology-ready; this is a failed playback test, not hardware acceptance.
+
+A read-only reproduction found that the description HTTP response was valid and
+1,986 bytes long, while the adapter's single `StreamReader.read(n)` returned only
+1,448 bytes; the remaining 538 bytes arrived later. The partial XML failed parsing,
+while the complete response parsed successfully. Reading to EOF in a standalone
+diagnostic process then verified renderer identity and service origins without
+transport commands or modification of the running service.
+
+The corrective source change accumulates XML chunks to EOF with the existing
+256-KiB bound and HTTP timeout, for both description and SCPD. Fragmented-description,
+fragmented-SCPD and cross-fragment size-limit regressions cover this boundary.
+The corrected source's full Python suite passed: 76 tests.
+Replay/admission/source policies are unchanged. A corrected-image deployment needs
+new approval; the running original direct-DLNA candidate remains unchanged.
+
 `qobuz/dlna_backend.py` subclasses the pinned upstream DLNABackend/DLNAClient:
 upstream DIDL, state/position polling and ordinary player/reporting behavior remain.
 Node direct mode exposes binding/admission only and disables `/v1/control`.
@@ -71,7 +94,7 @@ Tests include real local SOAP/description/SCPD HTTP, a two-process Python→Node
 binding→direct SOAP→actual relay-byte flow, upstream player natural repeat/manual
 next/reporting, takeover, missing renderer, rebinding, stale callbacks, unknown
 evidence, declarations, volume uncertainty and no setter echoes.
-Latest source suite: **94 Node tests and 73 Python tests passed**. These are
+Initial implementation suite: **94 Node tests and 73 Python tests passed**. These are
 simulation results, not audible playback, real natural completion or scrobbling.
 The inherited checkpoint's expiry test passed in these runs; its earlier failing
 run is retained below as historical evidence, not rewritten as acceptance.

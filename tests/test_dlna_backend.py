@@ -12,7 +12,7 @@ from qobuz_proxy.backends.types import BackendTrackMetadata, PlaybackState
 from qobuz.backend import VolumeUncertain, SeekUnsupported, AudioRelay
 from qobuz.client import OwnershipLost, RaumfeldClient
 from qobuz.diagnostics import PlaybackTimeline, ObservedReportingAPI
-from qobuz.dlna_backend import RaumfeldDLNABackend
+from qobuz.dlna_backend import RaumfeldDLNABackend, FencedDLNAClient
 from qobuz.receiver import DirectVolumeHandler
 from qobuz.service import Service
 from qobuz.player import RaumfeldPlayer
@@ -32,17 +32,30 @@ class DirectDLNATests(unittest.IsolatedAsyncioTestCase):
         self.missing_reads = False
         self.udn = 'synthetic-zone'
         self.before_media = None
+        self.fragment_descriptions = False
+        self.fragment_scpd = False
+        async def xml_response(request, text, fragmented):
+            if not fragmented:
+                return web.Response(text=text, content_type='text/xml')
+            body = text.encode()
+            response = web.StreamResponse(headers={'Content-Type': 'text/xml', 'Content-Length': str(len(body))})
+            await response.prepare(request)
+            await response.write(body[:len(body)//2])
+            await asyncio.sleep(.02)
+            await response.write(body[len(body)//2:])
+            await response.write_eof()
+            return response
         async def description(request):
             base = str(self.server.make_url('/')).rstrip('/')
             services = ''.join(f'<service><serviceType>urn:schemas-upnp-org:service:{name}:1</serviceType>'
                 f'<serviceId>urn:upnp-org:serviceId:{name}</serviceId><controlURL>{base}/soap</controlURL>'
                 '<eventSubURL>/events</eventSubURL><SCPDURL>/scpd</SCPDURL></service>'
                 for name in ['AVTransport', 'RenderingControl', 'ConnectionManager'])
-            return web.Response(text=f'<root xmlns="urn:schemas-upnp-org:device-1-0"><device>'
+            return await xml_response(request, f'<root xmlns="urn:schemas-upnp-org:device-1-0"><device>'
                 '<deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType>'
                 '<friendlyName>Synthetic</friendlyName><manufacturer>Raumfeld</manufacturer>'
                 f'<modelName>Synthetic</modelName><UDN>{self.udn}</UDN><serviceList>{services}</serviceList>'
-                '</device></root>', content_type='text/xml')
+                '</device></root>', self.fragment_descriptions)
         async def soap(request):
             action = request.headers['SOAPAction'].strip('"').split('#')[-1]
             body = await request.text()
@@ -80,9 +93,9 @@ class DirectDLNATests(unittest.IsolatedAsyncioTestCase):
             args = ''.join(f'<argument><name>{name}</name><direction>in</direction>'
                 '<relatedStateVariable>Synthetic</relatedStateVariable></argument>'
                 for name in ['InstanceID', 'Channel', 'DesiredVolume'])
-            return web.Response(text='<scpd xmlns="urn:schemas-upnp-org:service-1-0">'
+            return await xml_response(request, '<scpd xmlns="urn:schemas-upnp-org:service-1-0">'
                 f'<actionList><action><name>SetVolume</name><argumentList>{args}</argumentList>'
-                '</action></actionList></scpd>', content_type='text/xml')
+                '</action></actionList></scpd>', self.fragment_scpd)
         app.router.add_get('/scpd', scpd)
         app.router.add_post('/soap', soap)
         self.server = TestServer(app)
@@ -140,6 +153,29 @@ class DirectDLNATests(unittest.IsolatedAsyncioTestCase):
         await self.start()
         self.assertEqual(self.mutations(), ['SetAVTransportURI', 'Play', 'SetAVTransportURI', 'Play'])
         self.assertEqual(self.uri, self.relay.register.return_value)
+
+    async def test_fragmented_description_is_read_to_eof_before_identity_validation(self):
+        self.fragment_descriptions = True
+        await self.start()
+        self.assertEqual(self.mutations(), ['SetAVTransportURI', 'Play'])
+        self.assertTrue(self.backend.started)
+
+    async def test_fragmented_scpd_is_read_to_eof_before_single_volume_setter(self):
+        await self.start()
+        self.fragment_scpd = True
+        await self.backend.set_volume(4)
+        self.assertEqual(self.mutations().count('SetVolume'), 1)
+        self.assertEqual(self.backend.last_volume_result['observedVolume'], 4)
+
+    async def test_xml_read_keeps_the_size_bound_across_fragments(self):
+        async def chunks():
+            yield b'x' * 262144
+            yield b'x'
+        response = MagicMock()
+        response.content.iter_chunked.return_value = chunks()
+        with self.assertRaises(OwnershipLost):
+            await FencedDLNAClient.read_xml(response)
+        self.assertEqual(self.mutations(), [])
 
     async def test_uri_failure_has_no_retry_stop_play_or_success_state(self):
         self.fail_action = 'SetAVTransportURI'

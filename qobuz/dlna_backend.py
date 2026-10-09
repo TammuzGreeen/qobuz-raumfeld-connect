@@ -29,6 +29,18 @@ class FencedDLNAClient(DLNAClient):
         self.volume_scpd = None
         self.volume_declared = False
 
+    @staticmethod
+    async def read_xml(response):
+        # StreamReader.read(n) may return only the bytes currently available,
+        # not the complete HTTP entity. Accumulate to EOF with a strict bound.
+        chunks, size = [], 0
+        async for chunk in response.content.iter_chunked(16384):
+            size += len(chunk)
+            if size > 262144:
+                raise OwnershipLost('invalid_binding')
+            chunks.append(chunk)
+        return b''.join(chunks)
+
     async def _fetch_device_description(self):
         # No fallback path guessing/redirects. Only the identity-verified binding
         # from discovery can nominate a renderer.
@@ -36,9 +48,7 @@ class FencedDLNAClient(DLNAClient):
                 timeout=aiohttp.ClientTimeout(total=5)) as response:
             if response.status != 200:
                 raise OwnershipLost('renderer_unavailable')
-            body = await response.content.read(262145)
-        if len(body) > 262144:
-            raise OwnershipLost('invalid_binding')
+            body = await self.read_xml(response)
         root = ET.fromstring(body)
         ns = {'d': 'urn:schemas-upnp-org:device-1-0'}
         devices = root.findall('d:device', ns)
@@ -65,9 +75,7 @@ class FencedDLNAClient(DLNAClient):
                 timeout=aiohttp.ClientTimeout(total=5)) as response:
             if response.status != 200:
                 raise OwnershipLost('volume_action_not_declared')
-            body = await response.content.read(262145)
-        if len(body) > 262144:
-            raise OwnershipLost('volume_action_not_declared')
+            body = await self.read_xml(response)
         root = ET.fromstring(body)
         ns = {'s': 'urn:schemas-upnp-org:service-1-0'}
         setters = [a for a in root.findall('s:actionList/s:action', ns)
