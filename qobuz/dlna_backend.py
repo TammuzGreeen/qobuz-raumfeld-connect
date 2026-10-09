@@ -109,6 +109,10 @@ class FencedDLNAClient(DLNAClient):
                 if action == 'SetVolume':
                     raise VolumeUncertain('volume_command_uncertain')
                 raise OwnershipLost('command_failed_or_timed_out')
+            if action == 'Pause':
+                self.backend._pause_acknowledged = True
+            elif action in {'Play', 'Stop', 'SetAVTransportURI'}:
+                self.backend._pause_acknowledged = False
         return result
 
     async def set_volume(self, volume):
@@ -152,6 +156,8 @@ class RaumfeldDLNABackend(DLNABackend):
         self._initial_load = True
         self._loading_uri = None
         self._volume_uncertain = False
+        self._pause_acknowledged = False
+        self._pause_reads = None
         self.volume_reconcile_seconds = 6
         self._monitor_task = None
         self._on_external_playback = self.external
@@ -164,6 +170,8 @@ class RaumfeldDLNABackend(DLNABackend):
         token, self.token = self.token, None
         self.generation += 1
         self.started = False
+        self._pause_acknowledged = False
+        self._pause_reads = None
         if token:
             with contextlib.suppress(Exception):
                 await self.node.binding(self.room_id, 'release', token=token)
@@ -257,7 +265,9 @@ class RaumfeldDLNABackend(DLNABackend):
         self.check_context(client)
         if result.get('binding') != self.binding:
             raise OwnershipLost('binding_changed')
-        if not result.get('physicalReady') and not (loading and self._initial_load):
+        physical_confirmed = await self.physical_confirmed(client, result)
+        self.check_context(client)
+        if not physical_confirmed and not (loading and self._initial_load):
             raise OwnershipLost('source_not_confirmed')
         if not (action == 'SetAVTransportURI' and loading and self._initial_load):
             expected = self._loading_uri if loading and action == 'Play' else self._current_proxy_url
@@ -272,15 +282,42 @@ class RaumfeldDLNABackend(DLNABackend):
         self.check_context(client)
         if final.get('binding') != self.binding:
             raise OwnershipLost('binding_changed')
-        if not final.get('physicalReady') and not (loading and self._initial_load):
+        if (not final.get('physicalReady') and
+                not (physical_confirmed and self.paused_snapshot(final)) and
+                not (loading and self._initial_load)):
             raise OwnershipLost('source_not_confirmed')
+        if action == 'Pause':
+            self._pause_reads = tuple(final.get('physicalReads', []))
+
+    def paused_snapshot(self, result):
+        reads = result.get('physicalReads', [])
+        return bool(self._pause_acknowledged and self._pause_reads and result.get('physicalIdle') is True
+                and len(reads) == len(self._pause_reads)
+                and all(type(after) is int and after > before for before, after in zip(self._pause_reads, reads)))
+
+    async def physical_confirmed(self, client, result):
+        if result.get('physicalReady'):
+            return True
+        if not self.paused_snapshot(result) or not self._current_proxy_url:
+            return False
+        generation, epoch, expected = self.generation, self.epoch, self._current_proxy_url
+        uri = await client.get_media_info()
+        state = await client.get_transport_info()
+        if (self.token and generation == self.generation and epoch == self.epoch
+                and client is self._client and expected == self._current_proxy_url
+                and uri and uri != expected):
+            await self.external('external_source')
+            return False
+        return (bool(self.token) and generation == self.generation and epoch == self.epoch
+                and client is self._client and expected == self._current_proxy_url
+                and uri == expected and state == 'PAUSED_PLAYBACK')
 
     async def _owns_transport(self):
         if self._starting_playback or not self._current_proxy_url or not self.token:
             return False
         try:
             result = await self.resolve()
-            if not self._client or not result.get('physicalReady'):
+            if not self._client or not await self.physical_confirmed(self._client, result):
                 return False
             generation, epoch = self.generation, self.epoch
             owned = await super()._owns_transport()

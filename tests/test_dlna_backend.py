@@ -104,6 +104,9 @@ class DirectDLNATests(unittest.IsolatedAsyncioTestCase):
                         'rendererId': 'synthetic-zone', 'roomId': 'synthetic-room', 'rendererIds': ['synthetic-physical']}
         self.revoked = False
         self.binding_calls = []
+        self.physical_ready = True
+        self.physical_idle = False
+        self.physical_reads = None
         async def binding(room_id, action, **kwargs):
             self.binding_calls.append(action)
             if action == 'select':
@@ -112,8 +115,9 @@ class DirectDLNATests(unittest.IsolatedAsyncioTestCase):
                 return {}
             if self.revoked:
                 raise OwnershipLost('ownership_lost')
-            return {'binding': self.binding, 'physicalReady': True, 'initial': False,
-                    'physicalReads': [len(self.binding_calls)]}
+            return {'binding': self.binding, 'physicalReady': self.physical_ready,
+                    'physicalIdle': self.physical_idle, 'initial': False,
+                    'physicalReads': self.physical_reads or [len(self.binding_calls)]}
         self.node = MagicMock()
         self.node.binding = AsyncMock(side_effect=binding)
         self.relay = MagicMock()
@@ -159,6 +163,58 @@ class DirectDLNATests(unittest.IsolatedAsyncioTestCase):
         await self.start()
         self.assertEqual(self.mutations(), ['SetAVTransportURI', 'Play'])
         self.assertTrue(self.backend.started)
+
+    async def paused_with_physical_idle(self):
+        await self.start()
+        await self.backend.pause()
+        self.physical_ready = False
+        self.physical_idle = True
+        baseline = getattr(self.backend, '_pause_reads', None) or [len(self.binding_calls)]
+        self.physical_reads = [count + 1 for count in baseline]
+
+    async def test_acknowledged_pause_and_new_complete_idle_reads_allow_one_resume(self):
+        await self.paused_with_physical_idle()
+        self.assertTrue(await self.backend.can_play())
+        self.assertTrue(await self.backend.resume())
+        self.assertEqual(self.mutations(), ['SetAVTransportURI', 'Play', 'Pause', 'Play'])
+        self.assertFalse(self.backend._pause_acknowledged)
+        self.assertIsNotNone(self.backend.token)
+
+    async def test_idle_physical_observations_without_acknowledged_pause_cannot_authorize(self):
+        await self.start()
+        self.transport = 'PAUSED_PLAYBACK'
+        self.physical_ready = False
+        self.physical_idle = True
+        self.assertFalse(await self.backend.can_play())
+        self.assertEqual(self.mutations(), ['SetAVTransportURI', 'Play'])
+
+    async def test_cached_or_incomplete_paused_idle_evidence_cannot_authorize_resume(self):
+        await self.paused_with_physical_idle()
+        self.physical_reads = list(self.backend._pause_reads)
+        self.assertFalse(await self.backend.can_play())
+        self.physical_reads = [count + 1 for count in self.backend._pause_reads]
+        self.physical_idle = False
+        self.assertFalse(await self.backend.can_play())
+        self.assertEqual(self.mutations(), ['SetAVTransportURI', 'Play', 'Pause'])
+
+    async def test_paused_idle_never_masks_virtual_source_or_transport_changes(self):
+        await self.paused_with_physical_idle()
+        self.uri = 'https://example.test/competing-source'
+        self.assertFalse(await self.backend.can_play())
+        self.uri = self.relay.register.return_value
+        self.transport = 'PLAYING'
+        self.assertFalse(await self.backend.can_play())
+        self.assertEqual(self.mutations(), ['SetAVTransportURI', 'Play', 'Pause'])
+
+    async def test_native_takeover_during_paused_idle_stays_terminal(self):
+        await self.paused_with_physical_idle()
+        self.revoked = True
+        self.assertFalse(await self.backend.can_play())
+        self.assertIsNone(self.backend.token)
+        self.assertFalse(self.backend._pause_acknowledged)
+        self.revoked = False
+        self.assertFalse(await self.backend.can_play())
+        self.assertEqual(self.mutations(), ['SetAVTransportURI', 'Play', 'Pause'])
 
     async def test_fragmented_scpd_is_read_to_eof_before_single_volume_setter(self):
         await self.start()
@@ -390,7 +446,12 @@ class DirectDLNATests(unittest.IsolatedAsyncioTestCase):
             child.stdin.write('loaded\n'); child.stdin.flush()
             await asyncio.wait_for(asyncio.to_thread(child.stdout.readline), 5)
             await self.backend.pause()
+            child.stdin.write('paused\n'); child.stdin.flush()
+            await asyncio.wait_for(asyncio.to_thread(child.stdout.readline), 5)
+            self.assertTrue(await self.backend.can_play())
             self.assertTrue(await self.backend.resume())
+            child.stdin.write('loaded\n'); child.stdin.flush()
+            await asyncio.wait_for(asyncio.to_thread(child.stdout.readline), 5)
             child.stdin.write('native\n'); child.stdin.flush()
             await asyncio.wait_for(asyncio.to_thread(child.stdout.readline), 5)
             before = self.mutations()

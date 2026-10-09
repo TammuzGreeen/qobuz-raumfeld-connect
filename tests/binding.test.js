@@ -117,6 +117,16 @@ test('unknown source cannot confirm physical ownership; wrong forwarding identit
   g.store.emit('source', 'physical', 'http://192.0.2.1:55001/zone/other-room/physical/stream?punch=1');
   await assert.rejects(request(g.binding, 'lookup', next.token), /ownership_lost/);
 });
+test('paused idle is explicitly complete physical evidence, never forwarding ownership or an event-only proof', async () => {
+  const f = fixture(); const {token} = await select(f.binding);
+  f.store.observe('physical', {AVTransportURI: '', CurrentTransportState: 'NO_MEDIA_PRESENT'});
+  const idle = await request(f.binding, 'guard', token);
+  assert.equal(idle.physicalReady, false);
+  assert.equal(idle.physicalIdle, true);
+  assert.equal(idle.physicalReads[0], 2);
+  f.store.observe('physical', {AVTransportURI: '', CurrentTransportState: 'NO_MEDIA_PRESENT'}, {refresh: false});
+  assert.equal((await request(f.binding, 'guard', token)).physicalIdle, false);
+});
 test('binding API requires authentication/strict input and never exposes custom control', async t => {
   const f = fixture(); const apiToken = 'synthetic-api-token'.repeat(3);
   const server = createApi(f.store, {token: apiToken, binding: f.binding});

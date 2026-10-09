@@ -13,13 +13,21 @@ class BindingService {
     Object.assign(this, {store, observer, allowedRooms, now, ttlMs, handoffMs, timeoutMs});
     this.leases = new Map();
     this.seen = new Map();
-    store.on('lost', () => this.leases.clear());
+    this.idleReads = new Map();
+    store.on('lost', () => { this.leases.clear(); this.idleReads.clear(); });
+    store.on('removed', id => this.idleReads.delete(id));
     store.on('source', (id, uri) => {
       if (typeof uri === 'string' && /spotify:|spotifyconnect/i.test(uri)) this.revokeRenderer(id);
       else this.physicalEvent(id, [uri]);
     });
     store.on('nativeSpotify', id => this.revokeRenderer(id));
-    store.on('observation', (id, raw) => this.physicalEvent(id, uris(raw)));
+    store.on('observation', (id, raw, {refresh = false} = {}) => {
+      if (refresh && raw?.AVTransportURI === '' && uris(raw).length === 0 &&
+          this.store.renderers.get(id)?.transport === 'NO_MEDIA_PRESENT') {
+        this.idleReads.set(id, this.store.completeReads.get(id));
+      } else this.idleReads.delete(id);
+      this.physicalEvent(id, uris(raw));
+    });
     store.on('topology', () => {
       for (const [roomId, lease] of this.leases) {
         const room = this.store.rooms.find(r => r.id === roomId);
@@ -159,6 +167,13 @@ class BindingService {
     lease.expires = this.now() + this.ttlMs;
     return {binding: this.description(room), initial: lease.initialUntil > this.now(),
       physicalReads: room.rendererIds.map(id => this.store.completeReads.get(id) || 0),
+      physicalIdle: room.rendererIds.every(id => {
+        const raw = this.store.raw.get(id);
+        return raw?.AVTransportURI === '' && uris(raw).length === 0 &&
+          this.store.renderers.get(id)?.transport === 'NO_MEDIA_PRESENT' &&
+          (this.store.completeReads.get(id) || 0) > 0 &&
+          this.idleReads.get(id) === this.store.completeReads.get(id);
+      }),
       physicalReady: room.rendererIds.every(id => {
         const values = uris(this.store.raw.get(id));
         return values.length > 0 && values.every(value => forwardingShape(this.store, room, id, value));

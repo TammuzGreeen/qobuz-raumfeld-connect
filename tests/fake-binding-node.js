@@ -18,6 +18,8 @@ readline.createInterface({input: process.stdin}).on('line', line => {
   if (line === 'loaded') {
     store.observe('synthetic-physical', {AVTransportURI:
       'http://127.0.0.1:55000/synthetic-zone/synthetic-room/synthetic-physical/stream?punch=1'});
+  } else if (line === 'paused') {
+    store.observe('synthetic-physical', {AVTransportURI: '', CurrentTransportState: 'NO_MEDIA_PRESENT'});
   } else if (line === 'native') {
     store.emit('nativeSpotify', 'synthetic-physical');
     store.observe('synthetic-physical', {AVTransportURI: 'spotify:synthetic-takeover'});

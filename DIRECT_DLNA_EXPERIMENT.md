@@ -29,6 +29,35 @@ the preceding image were privately backed up; `/data` was not replaced.
 
 ## Implemented candidate
 
+### Audible playback, reporting acknowledgement and paused-resume correction
+
+On the XML-read image the user confirmed audible speaker playback and steady
+phone control. Pause stopped playback immediately; resume did not work, although
+the cloud/backend session remained active and unreleased. Diagnostics recorded an
+acknowledged Pause but no subsequent resume/Play command. Read-only renderer queries
+found the virtual renderer paused on the bridge relay URI with unchanged identity;
+complete physical observations reported empty source and `NO_MEDIA_PRESENT`.
+
+The direct path's additional physical-forwarding guard blocked this expected
+paused state before sending resume. The local correction requires all of:
+an acknowledged explicit Pause on the same session, complete new physical idle
+reads after the pre-Pause read counters, unchanged single-room membership, and
+fresh direct confirmation of the same virtual URI in `PAUSED_PLAYBACK`. Empty,
+cached or event-only observations alone still cannot authorize ownership. The
+idle proof is cleared on accepted Play/Stop/URI change or session release; native
+Spotify, foreign sources, expiry and topology mismatch remain terminal. No
+transport retry, fallback setter or automatic reclaim is introduced.
+
+The source regression suites passed **95 Node and 81 Python tests**, including
+the actual two-process binding→SOAP pause/idle/resume flow. This correction is not
+deployed; the existing hardware session remains untouched pending approval.
+
+Actual start-report verification on the audible run: upstream
+`track/reportStreamingStart` returned **HTTP 201**, and the real reporting API
+returned success. That is verified server acknowledgement, not verified Qobuz
+history or Last.fm visibility. No streaming-end acceptance or account-visible
+scrobble is claimed yet. Do not infer either from audible audio or cloud activation.
+
 ### First hardware attempt and local XML-read correction
 
 The user reported a stable phone connection but silence and paused playback;

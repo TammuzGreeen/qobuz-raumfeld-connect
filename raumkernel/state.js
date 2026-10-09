@@ -100,7 +100,7 @@ class StateStore extends EventEmitter {
       this.completeReads.set(id, (this.completeReads.get(id) || 0) + 1);
     }
     this.revision++;
-    this.emit('observation', id, state);
+    this.emit('observation', id, state, {refresh});
   }
   observationFailed(id, error) {
     const actions = ['GetMediaInfo', 'GetTransportInfo', 'GetPositionInfo', 'QueryLastChange'];
