@@ -49,8 +49,8 @@ with discovery disabled. Python regressions used a network-isolated container;
 Node tests used synthetic services and loopback HTTP. These results do not prove
 upstream application integration or hardware acceptance.
 
-Runnable implementation checks before the final Seek regression: **104 Node /
-108 Python tests passed**. The new
+Final review-image checks: **104 Node / 109 Python tests passed**, including the
+definite unsupported-Seek regression. The new
 upstream-first tests include actual stock discovery HTTP (including repeated
 valid session IDs), upstream Speaker/WebSocket/queue/player/reporter construction,
 deferred zone demand through a real Node companion process, synthetic SOAP,
@@ -64,6 +64,14 @@ The offline image smoke can be run with the mounted `tests/upstream-smoke.py`.
 GitHub CI workflow changes are omitted from the published checkpoint because
 the available OAuth token lacks workflow scope. The optional CI addition and
 original unpublished history are retained locally; no published history was rewritten.
+
+One concurrent full-suite repeat hit an inherited guarded-controller test's
+15-ms deadline: it failed closed with `ownership_lost` rather than the asserted
+`source_not_confirmed` category. Earlier concurrent full runs passed; the final
+image's serial full run passed all 104 Node tests. That old controller is not
+loaded by upstream-first mode. No deadline, guard or assertion was weakened to
+obtain the serial pass. The final image also passed all 109 Python tests and
+the upstream-first supervisor smoke.
 
 ## Upstream application and compatibility seams
 
@@ -121,6 +129,28 @@ UI/status listen on loopback port 8788; speaker discovery/audio bind the preserv
 restart-on-edit. Use an SSH tunnel for UI access; never expose private snapshots.
 
 ## Build, deployment and rollback
+
+Prepared local image: `raumfeld-connect:upstream-first-one-room-review`.
+Implementation revision: `a1986d719c754a7a38c77092ede9e19ff191a4e1`.
+Exported archive config digest:
+`sha256:34dd292bf900e9054d37a4bb276156efc95e031c598d0bedc9dd304e362c9cba`.
+Archive: `/tmp/opencode/direct-dlna-research/upstream-first-a1986d71.tar` (outside
+Git, amd64). Saved config, revision, embedded mode and filesystem layer identities
+were verified against the built image. Docker's local OCI image ID differs from
+the saved archive config digest; verify the latter when importing the archive.
+
+Read-only deployment preflight confirmed the live image was unchanged/running,
+host networking, automatic host discovery, one-room/CD configuration, a free
+candidate audio-proxy port, `pull_policy: never`, and no Compose override of the
+embedded playback mode. No app update, image import on the live host, speaker
+commands or runtime storage changes occurred.
+
+**Ready for separately approved deployment and hardware testing**, not a claim
+of actual Android connection stability, audible playback, hardware volume/knob
+behavior, uninterrupted Spotify, real reporting acknowledgement or scrobbling.
+The first checkpoint `2c1b5a8` was pushed to the experiment branch and its remote
+commit verified before implementation continued. Image archives/private preflight
+data are not part of the published source checkpoint.
 
 ```sh
 docker build --build-arg PLAYBACK_PATH=upstream_first \
