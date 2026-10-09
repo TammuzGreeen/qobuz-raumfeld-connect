@@ -131,6 +131,11 @@ class RoomDLNAClient(DLNAClient):
         if mutating:
             self.backend.check_operation()
             if not result.success:
+                if action == 'Seek' and result.error_code == 710:
+                    # Definite unsupported-mode rejection is not an uncertain
+                    # transport/source mutation. Preserve upstream's false Seek
+                    # result; never retry or substitute a transport command.
+                    return result
                 await self.backend.release_source()
                 raise EndpointUnavailable('mutation_failed_or_uncertain')
         return result

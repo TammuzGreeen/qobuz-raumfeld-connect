@@ -49,7 +49,8 @@ with discovery disabled. Python regressions used a network-isolated container;
 Node tests used synthetic services and loopback HTTP. These results do not prove
 upstream application integration or hardware acceptance.
 
-Runnable implementation checks: **104 Node / 108 Python tests passed**. The new
+Runnable implementation checks before the final Seek regression: **104 Node /
+108 Python tests passed**. The new
 upstream-first tests include actual stock discovery HTTP (including repeated
 valid session IDs), upstream Speaker/WebSocket/queue/player/reporter construction,
 deferred zone demand through a real Node companion process, synthetic SOAP,
@@ -97,6 +98,8 @@ factory slots. These are explicit compatibility seams, not unmodified upstream:
   disabled. Shutdown retires clients without speaker mutations. Unknown state
   reads do not become natural completion. URI loading uses bounded read-only
   virtual confirmation before Play; there is no physical-forwarding admission gate.
+  Definite Seek 710 rejection retains upstream's non-applied Seek result without
+  revoking source authority, retrying, or sending a replacement transport command.
 - Explicit volume commands stay upstream; cloud volume broadcasts never set
   speaker volume. Active changed-value readback reports knob feedback through
   upstream player callbacks. The declared virtual SetVolume action must match;

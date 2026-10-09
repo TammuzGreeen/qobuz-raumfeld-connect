@@ -44,6 +44,7 @@ class UpstreamRoomTests(unittest.IsolatedAsyncioTestCase):
         self.transport = 'PLAYING'
         self.volume = 4
         self.failure = None
+        self.failure_code = 501
         self.hook = None
         self.fragment = False
         self.udn = 'synthetic-zone'
@@ -85,7 +86,7 @@ class UpstreamRoomTests(unittest.IsolatedAsyncioTestCase):
             if action == self.failure:
                 return web.Response(status=500, text='<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">'
                     '<s:Body><s:Fault><detail><UPnPError xmlns="urn:schemas-upnp-org:control-1-0">'
-                    '<errorCode>501</errorCode><errorDescription>Synthetic</errorDescription>'
+                    f'<errorCode>{self.failure_code}</errorCode><errorDescription>Synthetic</errorDescription>'
                     '</UPnPError></detail></s:Fault></s:Body></s:Envelope>')
             if action == 'SetAVTransportURI':
                 self.uri = next(e.text for e in ET.fromstring(body).iter() if e.tag.endswith('CurrentURI'))
@@ -216,6 +217,17 @@ class UpstreamRoomTests(unittest.IsolatedAsyncioTestCase):
             await self.start()
         await self.backend.disconnect()
         self.assertEqual(self.mutations(), ['SetAVTransportURI', 'Play'])
+
+    async def test_definite_unsupported_seek_preserves_upstream_behavior_without_retry(self):
+        await self.start()
+        self.failure, self.failure_code = 'Seek', 710
+        await self.backend.seek(3000)
+        self.assertFalse(self.backend._external_playback)
+        self.assertEqual(self.mutations(), ['SetAVTransportURI', 'Play', 'Seek'])
+        self.assertEqual(self.backend._position_ms, 0)
+        self.backend._on_external_playback.assert_not_awaited()
+        await self.backend.pause()
+        self.assertTrue(await self.backend.resume())
 
     async def test_fragmented_description_is_read_completely(self):
         self.fragment = True
