@@ -49,8 +49,18 @@ Spotify, foreign sources, expiry and topology mismatch remain terminal. No
 transport retry, fallback setter or automatic reclaim is introduced.
 
 The source regression suites passed **95 Node and 81 Python tests**, including
-the actual two-process binding→SOAP pause/idle/resume flow. This correction is not
-deployed; the existing hardware session remains untouched pending approval.
+the actual two-process binding→SOAP pause/idle/resume flow.
+
+After explicit user approval, an image-only update deployed
+`raumfeld-connect:direct-dlna-paused-resume-review`, implementation revision
+`8388a2a24152123fcedef7238d0f9dd1b4caf083`, image config digest
+`sha256:0dbfe373b4bea2e7923cf51e3970abf76b4aa7a3a20b3b464a407a9133f24701`.
+Health/authentication/topology and the one-room/CD configuration passed checks;
+credentials, mounts, previous environment values and host networking were unchanged.
+There were zero restarts and no selected/started sessions after startup. Deployment
+checks sent no transport, volume or zone commands. Previous images/configurations
+remain available for rollback. The bridge restart ended the old control session;
+fresh selection and user-driven pause/resume verification on this image are pending.
 
 Actual start-report verification on the audible run: upstream
 `track/reportStreamingStart` returned **HTTP 201**, and the real reporting API
