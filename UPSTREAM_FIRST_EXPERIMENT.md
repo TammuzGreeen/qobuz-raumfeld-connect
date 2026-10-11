@@ -395,13 +395,36 @@ checks, real stock load-only/explicit-Play replay, unchanged SOAP mutation count
 failed-URI/no retry, acknowledged URI followed by deactivation/no Play, preserved
 WebSocket return values/task cancellation, and diagnostic-enabled real
 Node-companion/stock-Speaker/audio-proxy composition. Final artifact/deployment
-checks are recorded below; the live metadata-feedback image is unchanged while
-this diagnostic candidate is being prepared.
+checks are recorded below. The metadata-feedback image was unchanged during
+preparation; the separately approved diagnostic image is now deployed.
+
+Diagnostic implementation: `69fd3941642e664eee2aaf41f92ec11818fbe48d`.
+Image: `raumfeld-connect:upstream-first-state-diagnostic-review` (amd64).
+Archive config digest:
+`sha256:173d1d7aefbed8b350453dcf1eac18cd57bf2cbf03c1528c2556b7bf355fde6d`.
+Archive: `/tmp/opencode/direct-dlna-research/upstream-first-state-diagnostic-69fd3941.tar`,
+outside Git. Final image validation passed **104 Node tests (serial), 127 Python
+tests and isolated upstream-first supervisor/UI/health/storage/shutdown smoke**.
+Diagnostic marker/label, revision, mode, archive layers and imported digest were
+verified before the approved image-only app update. Private before-state and
+the immediately previous image archive were retained, along with the separate
+known-working rollback.
+
+Post-deployment health/authentication, one-room/CD advertisement, name/UUID/port,
+physical membership, original file hashes, optional token-cache state, mounts,
+host networking and every environment value were preserved. Diagnostic marker
+and label were enabled; only upstream-first entrypoints were active. Verification
+found an idle speaker, no selected session and zero restarts. No agent-driven
+transport, volume or zone mutations were issued. Next reproduction and exact
+command-state diagnosis on this image remain pending user-driven testing; this
+deployment is not a playback fix and is not overall hardware acceptance.
 
 ```sh
 docker build --build-arg PLAYBACK_PATH=upstream_first \
+  --build-arg UPSTREAM_STATE_DIAGNOSTICS=1 \
   --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" \
-  -t raumfeld-connect:upstream-first-metadata-feedback-review .
+  --label io.raumfeld.upstream-state-diagnostics=1 \
+  -t raumfeld-connect:upstream-first-state-diagnostic-review .
 ```
 
 `docker-compose.upstream-first.yml` is an image-only override with
