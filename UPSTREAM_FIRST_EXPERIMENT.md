@@ -609,3 +609,31 @@ mutation or new deployment has been performed for this review. Next, Pause/resum
 natural advancement, Android volume and physical knob feedback must all be retested
 on this same candidate after separate deployment approval. Reporting/scrobbling,
 uninterrupted Spotify and outstanding handoff/rebinding acceptance remain separate.
+
+## Prepared partial-state image checks
+
+Implementation: `560ee29e19e242fb336281823aa2caa36d9bcafc`.
+Local image: `raumfeld-connect:upstream-first-partial-state-review`, amd64,
+ID `sha256:088c8afa865cf264b5b4be230aa8aaf070694ae8a77207d119c658fb67ae4c56`.
+The exported rollback/test archive is retained privately with SHA-256
+`eb0fdd43e2ea4887a7486b35bd930e2cf91f30c5e43c3347abdb4283e786fbd7`.
+Diagnostic build marker/label is enabled; no runtime environment changes are needed.
+
+The built candidate passed 147 project Python tests and four standalone upstream
+contribution tests (151 total), including fail-closed patch installation. All six
+original pinned upstream serialization tests passed with the patched source.
+All 104 serial Node tests passed in the isolated Node 24 development-dependency
+harness; the initial slim-runtime test attempt lacked test-only `ajv`, not a runtime
+regression. Offline candidate supervisor/UI/health/storage/shutdown smoke passed.
+Fresh replay against unmodified pinned upstream, unmodified newer HEAD and the
+built candidate reconfirmed the table above with explicit method-entry event gates.
+Tests use synthetic credentials/metadata/URLs; private stderr and image archives
+remain outside Git. No registry publication or dependency update occurred.
+
+Candidate is **prepared, not deployed; `hardwareVerified: false`**. Running image
+remains `78f6f06` with failed Next acceptance. Separate approval is required before
+deployment or agent-driven speaker-changing tests. After approval, establish audible
+initial playback, test Next once and inspect categorical diagnostics, then repeat
+Pause/resume, natural advancement, Android volume and physical knobs on this exact
+image. Renderer PLAYING, SOAP acknowledgements and synthetic success do not establish
+audibility, real reporting acknowledgement or account-visible scrobbles.
