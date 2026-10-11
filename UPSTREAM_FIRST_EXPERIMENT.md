@@ -170,9 +170,9 @@ binding/controller entrypoint active. There were zero restarts, an idle speaker
 and no Android session selected at verification. Checks sent no transport,
 volume or zone mutations. Audible playback and real reporting are not claimed.
 
-### Hardware state mismatch and local atomic-load correction
+### Hardware state mismatch and approved atomic-load correction
 
-On the deployed image the user reported a steady connection and a playing track,
+On the initial upstream-first image the user reported a steady connection and a playing track,
 but Android offered only Play rather than Pause; tapping Play restarted the track.
 Read-only checks found upstream status idle/no now-playing metadata while the
 virtual renderer reported PLAYING on the upstream audio proxy. The session was
@@ -186,7 +186,7 @@ SOAP: a newer same-session player generation arriving during URI acknowledgement
 aborted the started load. The precise live triggering packet is not separately
 captured, so it is not claimed that this is the only possible failure.
 
-The local correction distinguishes ordinary queued player intents from stock
+The atomic-load correction distinguishes ordinary queued player intents from stock
 command-handler activation/disconnect authority. Player generations still reject
 superseded metadata work before the first mutation. Once a URI write starts,
 stock URI+Play completes atomically under the same selection/source/activation
@@ -200,16 +200,16 @@ The source suite passed **115 Python tests**, including actual queued upstream
 `apply_remote_state`, playing/start-report completion, pre-mutation supersession,
 and deactivation/disconnect during acknowledged URI loading. Rejection diagnostics
 contain only boolean categories, never session IDs, source URLs or credentials.
-Prepared-image results are recorded separately below. The correction is **not
-deployed**, and no subsequent hardware success, Pause/resume or real scrobble is
-claimed. The approved live image remains at implementation `a1986d7`.
+Prepared-image results are recorded separately below. After new explicit user
+approval the correction was deployed at implementation `b7c48a5`. Subsequent
+hardware success, Pause/resume and real scrobbling remain unverified.
 
 The read-only URI confirmation window tolerates only an empty observation or the
 freshly observed pre-load URI while waiting for the requested URI. A positive
 foreign virtual source is terminal immediately, even if an old bridge URI might
 reappear later. Prepared correction image tag:
-`raumfeld-connect:upstream-first-atomic-load-review`; deployment requires a new
-explicit approval.
+`raumfeld-connect:upstream-first-atomic-load-review`; its image-only deployment
+was explicitly approved.
 
 Prepared correction implementation: `b7c48a5b71ee607300712312d84002988c489a46`.
 Exported archive config digest:
@@ -221,10 +221,22 @@ revision, embedded mode and layers were verified. The existing deployed image
 tag was not overwritten, and no image import/app update or speaker-changing
 commands were performed while preparing this correction.
 
+Approved correction deployment changed only the live app image, after archive
+digest/layer/revision verification and private before-state/rollback preservation.
+Post-update health/authentication and one-room/CD advertisement passed. Room
+name/UUID/port, physical membership, original config/credential file hashes,
+optional token-cache state, mounts, host networking and environment values were
+unchanged. The optional token cache remained absent; this is valid when original
+credentials supply authentication. Docker reordered environment entries, but
+every key/value remained identical. Only upstream-first entrypoints were active,
+with zero restarts, an idle speaker and no selected Android session at verification.
+No agent-driven transport, volume or zone mutations were issued. Both the
+previous upstream-first image and the separate known-working rollback are retained.
+
 ```sh
 docker build --build-arg PLAYBACK_PATH=upstream_first \
   --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" \
-  -t raumfeld-connect:upstream-first-one-room-review .
+  -t raumfeld-connect:upstream-first-atomic-load-review .
 ```
 
 `docker-compose.upstream-first.yml` is an image-only override with

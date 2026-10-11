@@ -1,5 +1,5 @@
 # Local review image only. No registry pull, push or automatic deployment.
 services:
   raumfeld-connect:
-    image: raumfeld-connect:upstream-first-one-room-review
+    image: raumfeld-connect:upstream-first-atomic-load-review
     pull_policy: never
