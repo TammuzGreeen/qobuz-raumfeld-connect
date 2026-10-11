@@ -419,7 +419,7 @@ transport, volume or zone mutations were issued. Next reproduction and exact
 command-state diagnosis on this image remain pending user-driven testing; this
 deployment is not a playback fix and is not overall hardware acceptance.
 
-### Diagnosed split Next/Play race and correction candidate
+### Diagnosed split Next/Play race and approved correction
 
 On the diagnostic image, initial playback was user-confirmed audible with Pause
 shown and a steady connection. One user-driven Next did not start new audio;
@@ -455,9 +455,9 @@ Source validation passed **135 Python tests**, including the exact split Next/Pl
 race, source takeover, new selection, deactivation, disconnect/reactivation,
 genuine Pause, newer item selection and failed Stop while split Play waits.
 Existing diagnostics, metadata-feedback, pre-mutation supersession, source safety
-and stock connection tests remain intact. This correction is **not deployed**;
-only diagnostic implementation `69fd394` is currently approved/live. Deployment
-of the new playback correction requires separate user approval.
+and stock connection tests remain intact. After separate explicit user approval,
+the split-Next correction is deployed at implementation `78f6f06`. Hardware
+acceptance of this playback change remains pending.
 
 Prepared correction implementation: `78f6f06c77b0b99fe89aed55c8bd890f8ba2f349`.
 Image: `raumfeld-connect:upstream-first-split-next-review` (amd64), with categorical
@@ -467,14 +467,28 @@ Archive: `/tmp/opencode/direct-dlna-research/upstream-first-split-next-78f6f06c.
 outside Git. Final image validation passed **104 Node tests (serial), 135 Python
 tests and isolated upstream-first supervisor/UI/health/storage/shutdown smoke**.
 Image revision/mode/diagnostic label and archive layers were verified. No remote
-import, app update or agent-driven speaker mutation occurred for this correction.
+import, app update or agent-driven speaker mutation occurred during preparation.
+
+Approved split-Next deployment changed only the app image after exact imported
+digest/layers/architecture/revision/mode/diagnostic-label checks. Private
+before-state and the immediately previous diagnostic image archive were retained;
+the separate known-working rollback is also available. Post-update health and
+authentication passed, with one-room/CD discovery and unchanged room name/UUID/port
+and physical membership. Original configuration/credential hashes, optional
+token-cache state, mounts, host networking and all environment values were
+preserved. Diagnostics remained enabled, only upstream-first entrypoints were
+active, and verification found an idle speaker, no selected session and zero
+restarts. No agent-driven transport, volume or zone mutations were issued.
+Fresh playback and the Next-button correction require user-driven hardware
+verification; synthetic tests and deployment health do not establish audible
+Next playback or overall hardware acceptance.
 
 ```sh
 docker build --build-arg PLAYBACK_PATH=upstream_first \
   --build-arg UPSTREAM_STATE_DIAGNOSTICS=1 \
   --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" \
   --label io.raumfeld.upstream-state-diagnostics=1 \
-  -t raumfeld-connect:upstream-first-state-diagnostic-review .
+  -t raumfeld-connect:upstream-first-split-next-review .
 ```
 
 `docker-compose.upstream-first.yml` is an image-only override with
