@@ -205,6 +205,7 @@ class DeferredRoomBackend(DLNABackend):
         self.spotify_version = None
         self.player = None
         self.authority_reader = None
+        self.pending_load = None
         self.closed = False
         self.poll_seconds = poll_seconds
         self._gapless_supported = False
@@ -253,13 +254,45 @@ class DeferredRoomBackend(DLNABackend):
                 async def with_generation(*args, **kwargs):
                     # Carry upstream's generation across metadata/URL/reporting awaits.
                     token = operation.set(operation.get() or self.capture_operation())
+                    load = None
                     try:
                         self.check_operation()
+                        if original.__name__ == '_start_playback':
+                            load = (asyncio.Event(), self.capture_operation(), player._current_track)
+                            self.pending_load = load
                         return await original(*args, **kwargs)
                     finally:
+                        if load is not None:
+                            if self.pending_load is load:
+                                self.pending_load = None
+                            load[0].set()
                         operation.reset(token)
                 return with_generation
             setattr(player, name, wrap(original))
+
+        original_apply = player.apply_remote_state
+        @wraps(original_apply)
+        async def apply_remote_state(**kwargs):
+            load = self.pending_load
+            track = load[2] if load else None
+            # A same-item metadata-only snapshot is not a new transport intent.
+            # Let the stock locked load finish before stock apply_remote_state
+            # registers this feedback's generation. Actual play/pause/stop/seek
+            # or a different queue item still registers immediately and wins.
+            passive = (track is not None and kwargs.get('playing_state') is None
+                       and kwargs.get('position_ms') is None
+                       and kwargs.get('track_id') in (None, track.track_id)
+                       and kwargs.get('queue_item_id') in (None, track.queue_item_id))
+            if passive:
+                captured = operation.get() or self.capture_operation()
+                logger.info('Deferred same-item metadata-only feedback during playback load')
+                await load[0].wait()
+                if (captured != self.capture_operation() or load[1] != self.capture_operation()
+                        or track is not player._current_track or self.closed or self._external_playback):
+                    logger.info('Dropped superseded deferred playback feedback')
+                    return  # A newer real intent/source superseded this feedback.
+            return await original_apply(**kwargs)
+        player.apply_remote_state = apply_remote_state
 
     def capture_operation(self):
         return (self.selection_generation, self.player._command_generation if self.player else None,
@@ -467,6 +500,9 @@ class DeferredRoomBackend(DLNABackend):
                 await self.refresh()
         elif not await self._owns_transport():
             raise EndpointUnavailable('external_source')
+        # URI/source reads above can yield while native takeover evidence changes.
+        # Refresh that evidence again before the single transport write.
+        await self.refresh()
         self.check_operation()
         if client is not self._client or client.retired:
             raise EndpointUnavailable('retired_endpoint')

@@ -233,6 +233,50 @@ with zero restarts, an idle speaker and no selected Android session at verificat
 No agent-driven transport, volume or zone mutations were issued. Both the
 previous upstream-first image and the separate known-working rollback are retained.
 
+### Post-completion failure and metadata-feedback correction candidate
+
+On atomic-load implementation `b7c48a5`, the user confirmed Android showed Pause,
+audible audio stopped and resumed, and the connection remained steady. Read-only
+status corroborated playing with now-playing metadata and an active session.
+This establishes initial playback and Pause/resume only; volume remains untested.
+
+After ordinary track completion, the user could select a different track but
+could not play it. Sanitized logs showed natural end, an attempted automatic
+advance, and later requested loads rejected by `stale_upstream_command` before
+SetAVTransportURI. All associated rejection flags indicated only a newer player
+command generation, not changed selection/activation authority. Read-only status
+was idle/no now-playing metadata, with authentication, endpoint and session still
+present. Thus both ordinary automatic advancement and manual Play after completion
+failed acceptance; a steady session alone is not successful playback.
+
+A local synthetic same-item metadata-only `apply_remote_state` during the
+pre-URI media read reproduced failed load, zero transport writes and non-playing
+final state against the deployed source. The earlier synthetic PLAYING snapshot
+reproduced the rejection but subsequently recovered; that did not reproduce the
+persistent failure. Live protobuf contents were not logged, so metadata-only
+feedback is a demonstrated candidate cause, not a proven identification of the
+exact live packet.
+
+The new candidate defers only same-item snapshots with neither playingState nor
+position while `_start_playback` is in flight. Once the load/report phase finishes,
+stock `apply_remote_state` handles that metadata feedback, including late context.
+Feedback is discarded if a newer genuine intent, selection/source change, or
+different loaded track intervened. Explicit Play/Pause/Stop/Seek and different
+queue-item selection still register upstream generations immediately. Existing
+pre-mutation supersession tests/guards remain unchanged. No transport retry,
+recovery Stop, custom queue/player, ownership lease or session replay admission
+is added. A second catalog read before each write catches native-source evidence
+that arrived during the preceding virtual-source read.
+
+The source suite passes **122 Python tests**, including real protobuf stock-handler
+dispatch across initial Play, ordinary natural advance, queue exhaustion, fresh
+selection and Play with metadata feedback. Other regressions cover genuine Pause
+supersession, different queue occurrences, late context preservation, failed URI
+without retry, native takeover during source reads, and new-selection cancellation
+with feedback waiting. Safe diagnostic messages contain no identifiers/metadata.
+The candidate is **not deployed**; the live image remains the approved atomic-load
+image at `b7c48a5`. A further image-only deployment requires separate approval.
+
 ```sh
 docker build --build-arg PLAYBACK_PATH=upstream_first \
   --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" \

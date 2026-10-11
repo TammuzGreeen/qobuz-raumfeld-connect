@@ -20,6 +20,7 @@ from qobuz_proxy.playback.play_reporter import PlayReporter
 from qobuz_proxy.playback.queue import RepeatMode
 from qobuz_proxy.connect.discovery import DiscoveryService
 from qobuz_proxy.connect.ws_manager import WsManager
+from qobuz_proxy.connect.protocol import payload_pb2
 from qobuz_proxy.playback.command_handler import PlaybackCommandHandler
 from qobuz_proxy.config import Config, SpeakerConfig
 from qobuz_proxy.speaker import Speaker
@@ -301,11 +302,218 @@ class UpstreamRoomTests(unittest.IsolatedAsyncioTestCase):
         player.set_playback_permission_check(self.backend.can_apply_remote_state)
         track = MagicMock()
         track.track_id, track.streaming_url = '101', 'http://audio.example.test/synthetic.flac'
+        track.queue_item_id = 1
         track.url_is_stale.return_value = False
         track.metadata, track.duration_ms = {'title': 'Synthetic', 'duration_ms': 180000}, 180000
         track.context_uuid = bytes([1]) * 16
         player._current_track = track
         return player, api
+
+    async def test_passive_snapshot_before_uri_cannot_cancel_load_or_strand_playback(self):
+        player, api = self.stock_player()
+        pending = []
+        context = bytes([2]) * 16
+        async def hook(action):
+            if action == 'GetMediaInfo' and not pending:
+                pending.append(asyncio.create_task(player.apply_remote_state(
+                    track_id='101', queue_item_id=1, position_ms=None, playing_state=None,
+                    context_uuid=context)))
+                await asyncio.sleep(0)
+        self.hook = hook
+        self.backend.prepare_for_selection()
+        try:
+            async with player._playback_lock:
+                self.assertTrue(await player._start_playback())
+            await asyncio.wait_for(pending[0], 5)
+            self.assertEqual(self.mutations(), ['SetAVTransportURI', 'Play'])
+            self.assertEqual(player.state, PlaybackState.PLAYING)
+            self.assertEqual(player._current_track.context_uuid, context)
+            api.report_streaming_start.assert_awaited_once()
+        finally:
+            for task in pending:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+
+    async def test_real_pause_before_uri_still_supersedes_load_and_passive_feedback(self):
+        player, api = self.stock_player()
+        pending = []
+        async def hook(action):
+            if action == 'GetMediaInfo' and not pending:
+                pending.append(asyncio.create_task(player.apply_remote_state(
+                    track_id='101', queue_item_id=1, position_ms=None, playing_state=None)))
+                await asyncio.sleep(0)
+                pending.append(asyncio.create_task(player.apply_remote_state(
+                    track_id='101', queue_item_id=1, position_ms=None, playing_state=3)))
+                await asyncio.sleep(0)
+        self.hook = hook
+        self.backend.prepare_for_selection()
+        try:
+            async with player._playback_lock:
+                self.assertFalse(await player._start_playback())
+            await asyncio.wait_for(asyncio.gather(*pending), 5)
+            self.assertEqual(self.mutations(), [])
+            self.assertNotEqual(player.state, PlaybackState.PLAYING)
+            api.report_streaming_start.assert_not_awaited()
+        finally:
+            for task in pending:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+
+    async def test_passive_snapshot_during_failed_uri_does_not_retry_or_reclaim(self):
+        player, api = self.stock_player()
+        pending = []
+        self.failure = 'SetAVTransportURI'
+        async def hook(action):
+            if action == 'GetMediaInfo' and not pending:
+                pending.append(asyncio.create_task(player.apply_remote_state(
+                    track_id='101', queue_item_id=1, position_ms=None, playing_state=None)))
+                await asyncio.sleep(0)
+        self.hook = hook
+        self.backend.prepare_for_selection()
+        try:
+            async with player._playback_lock:
+                self.assertFalse(await player._start_playback())
+            await asyncio.wait_for(pending[0], 5)
+            self.assertEqual(self.mutations(), ['SetAVTransportURI'])
+            self.assertTrue(self.backend._external_playback)
+            api.report_streaming_start.assert_not_awaited()
+        finally:
+            for task in pending:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+
+    async def test_natural_advance_then_manual_selection_and_play_with_stock_feedback_dispatch(self):
+        player, api = self.stock_player()
+        meta = MagicMock()
+        meta.to_dict.return_value = {'title': 'Synthetic', 'duration_ms': 180000}
+        player.metadata.get_metadata = AsyncMock(return_value=meta)
+        player.metadata.get_streaming_url = AsyncMock(return_value='http://audio.example.test/next.flac')
+        handler = PlaybackCommandHandler(player)
+        self.backend.bind_authority(lambda: (handler._generation, handler._active))
+        handler._note_active(True)
+        player.set_next_track_callbacks(handler.get_next_track_info, handler.clear_next_track_info)
+
+        def message(track_id, item_id, playing=None):
+            msg = payload_pb2.QConnectMessage()
+            msg.srvrRndrSetState.currentQueueItem.trackId = int(track_id)
+            msg.srvrRndrSetState.currentQueueItem.queueItemId = item_id
+            if playing is not None:
+                msg.srvrRndrSetState.playingState = playing
+            return msg
+
+        feedback = []
+        seen = set()
+        async def hook(action):
+            load = self.backend.pending_load
+            if action == 'GetMediaInfo' and load and load[2].track_id not in seen:
+                track = load[2]
+                seen.add(track.track_id)
+                feedback.append(handler.dispatch_message(41, message(track.track_id, track.queue_item_id)))
+                await asyncio.sleep(0)
+        self.hook = hook
+        self.backend.prepare_for_selection()
+        try:
+            operation.set(None)  # Fresh cloud dispatch captures current selection.
+            self.assertTrue(await player.play())
+            await asyncio.wait_for(asyncio.gather(*feedback), 5)
+            handler._next_track_info = {'queueItemId': 2, 'trackId': '102', 'contextUuid': bytes([1]) * 16}
+            self.transport = 'STOPPED'
+            await player._handle_track_ended(player._current_track)
+            await asyncio.wait_for(asyncio.gather(*feedback), 5)
+            self.assertEqual(player._current_track.track_id, '102')
+            self.assertEqual(player.state, PlaybackState.PLAYING)
+            self.transport = 'STOPPED'
+            await player._handle_track_ended(player._current_track)
+            self.assertEqual(player.state, PlaybackState.STOPPED)
+            await handler.dispatch_message(41, message('103', 3))
+            self.assertEqual(player._current_track.track_id, '103')
+            self.assertEqual(player.state, PlaybackState.STOPPED)
+            await handler.dispatch_message(41, message('103', 3, 2))
+            await asyncio.wait_for(asyncio.gather(*feedback), 5)
+            self.assertEqual(player.state, PlaybackState.PLAYING)
+            self.assertEqual(self.mutations().count('SetAVTransportURI'), 3)
+            self.assertEqual(self.mutations().count('Play'), 3)
+            self.assertEqual(api.report_streaming_start.await_count, 3)
+            self.assertEqual(api.report_streaming_end.await_count, 2)
+        finally:
+            for task in feedback:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*feedback, return_exceptions=True)
+
+    async def test_native_takeover_with_passive_snapshot_waiting_cannot_reclaim(self):
+        player, api = self.stock_player()
+        pending = []
+        async def hook(action):
+            if action == 'GetMediaInfo' and not pending:
+                pending.append(asyncio.create_task(player.apply_remote_state(
+                    track_id='101', queue_item_id=1, position_ms=None, playing_state=None)))
+                await asyncio.sleep(0)
+                self.row['spotifyVersion'] += 1
+        self.hook = hook
+        self.backend.prepare_for_selection()
+        try:
+            async with player._playback_lock:
+                self.assertFalse(await player._start_playback())
+            await asyncio.wait_for(pending[0], 5)
+            self.assertEqual(self.mutations(), [])
+            self.assertTrue(self.backend._external_playback)
+            api.report_streaming_start.assert_not_awaited()
+        finally:
+            for task in pending:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+
+    async def test_different_item_metadata_snapshot_is_selection_not_deferred_feedback(self):
+        player, api = self.stock_player()
+        pending = []
+        async def hook(action):
+            if action == 'GetMediaInfo' and not pending:
+                pending.append(asyncio.create_task(player.apply_remote_state(
+                    track_id='101', queue_item_id=2, position_ms=None, playing_state=None)))
+                await asyncio.sleep(0)
+        self.hook = hook
+        self.backend.prepare_for_selection()
+        try:
+            async with player._playback_lock:
+                self.assertFalse(await player._start_playback())
+            await asyncio.wait_for(pending[0], 5)
+            self.assertEqual(player._current_track.queue_item_id, 2)
+            self.assertEqual(self.mutations(), [])
+            api.report_streaming_start.assert_not_awaited()
+        finally:
+            for task in pending:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+
+    async def test_selection_change_discards_waiting_feedback_without_reviving_old_load(self):
+        player, api = self.stock_player()
+        pending = []
+        async def hook(action):
+            if action == 'GetMediaInfo' and not pending:
+                pending.append(asyncio.create_task(player.apply_remote_state(
+                    track_id='101', queue_item_id=1, position_ms=None, playing_state=None)))
+                await asyncio.sleep(0)
+                self.backend.prepare_for_selection()
+        self.hook = hook
+        self.backend.prepare_for_selection()
+        try:
+            async with player._playback_lock:
+                self.assertFalse(await player._start_playback())
+            await asyncio.wait_for(pending[0], 5)
+            self.assertEqual(self.mutations(), [])
+            api.report_streaming_start.assert_not_awaited()
+            self.assertIsNone(self.backend.pending_load)
+        finally:
+            for task in pending:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
 
     async def test_same_session_new_snapshot_during_uri_ack_finishes_atomic_load_and_reports_playing(self):
         player, api = self.stock_player()
