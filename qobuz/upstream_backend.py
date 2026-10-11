@@ -7,6 +7,7 @@ import asyncio
 import contextlib
 from contextvars import ContextVar
 from functools import wraps
+import logging
 from urllib.parse import urlsplit, urljoin
 import xml.etree.ElementTree as ET
 
@@ -18,6 +19,8 @@ from qobuz_proxy.backends.types import PlaybackState
 from .endpoint_catalog import Endpoint
 
 operation = ContextVar('upstream_room_operation', default=None)
+committed_load = ContextVar('upstream_committed_load', default=None)
+logger = logging.getLogger(__name__)
 
 
 def source_operation(method):
@@ -123,6 +126,12 @@ class RoomDLNAClient(DLNAClient):
             if action not in {'SetAVTransportURI', 'Play', 'Pause', 'Stop', 'Seek', 'SetVolume'}:
                 raise EndpointUnavailable('unsupported_mutation')
             await self.backend.before_write(self, action)
+            if action == 'SetAVTransportURI':
+                # The stock player serializes its transport sequence. Once this
+                # URI write starts, finish URI + Play under the same source
+                # authority even if a newer same-session snapshot queues up.
+                # Selection, activation/disconnect and native takeover still win.
+                committed_load.set(operation.get())
         result = await super()._soap_action_detailed(url, service, action, args, max_retries=1)
         if self.retired or self.backend._client is not self or self.epoch != self.backend.epoch:
             if mutating:
@@ -195,6 +204,7 @@ class DeferredRoomBackend(DLNABackend):
         self.selection_pending = False
         self.spotify_version = None
         self.player = None
+        self.authority_reader = None
         self.closed = False
         self.poll_seconds = poll_seconds
         self._gapless_supported = False
@@ -231,7 +241,9 @@ class DeferredRoomBackend(DLNABackend):
             # Retain the selection captured at dispatch, while using upstream's
             # newly registered player generation. A newer selection cannot revive
             # an old task simply because it registers a command late.
-            operation.set((captured[0] if captured else self.selection_generation, generation))
+            current = self.capture_operation()
+            operation.set((captured[0] if captured else current[0], generation,
+                           captured[2] if captured else current[2]))
             return generation
         player._next_generation = next_generation
         for name in ('_play_locked', '_start_playback'):
@@ -250,11 +262,26 @@ class DeferredRoomBackend(DLNABackend):
             setattr(player, name, wrap(original))
 
     def capture_operation(self):
-        return (self.selection_generation, self.player._command_generation if self.player else None)
+        return (self.selection_generation, self.player._command_generation if self.player else None,
+                self.authority_reader() if self.authority_reader else None)
+
+    def bind_authority(self, reader):
+        self.authority_reader = reader
 
     def check_operation(self):
         captured = operation.get()
-        if self.closed or self._external_playback or (captured is not None and captured != self.capture_operation()):
+        current = self.capture_operation()
+        inactive = self.authority_reader and (current[2] is None or not current[2][1])
+        superseded = captured is not None and (
+            captured[0] != current[0] or captured[2] != current[2] or
+            (captured[1] != current[1] and committed_load.get() != captured))
+        if self.closed or self._external_playback or inactive or superseded:
+            logger.warning('Rejected playback generation: selectionChanged=%s authorityChanged=%s '
+                           'commandSuperseded=%s committedLoad=%s inactive=%s',
+                           bool(captured and captured[0] != current[0]),
+                           bool(captured and captured[2] != current[2]),
+                           bool(captured and captured[1] != current[1]),
+                           bool(captured and committed_load.get() == captured), bool(inactive))
             raise EndpointUnavailable('stale_upstream_command')
 
     async def release_source(self):
@@ -368,6 +395,7 @@ class DeferredRoomBackend(DLNABackend):
         return await super().can_apply_remote_state()
 
     async def play(self, url, metadata):
+        atomic = committed_load.set(None)
         token = None
         if operation.get() is None:
             token = operation.set(self.capture_operation())
@@ -393,6 +421,7 @@ class DeferredRoomBackend(DLNABackend):
             self.check_operation()
             self.selection_pending = False
         finally:
+            committed_load.reset(atomic)
             if token is not None:
                 operation.reset(token)
 
@@ -414,12 +443,23 @@ class DeferredRoomBackend(DLNABackend):
         if action == 'SetAVTransportURI':
             # Upstream suspends ownership polling during its load sequence. For
             # ordinary next-track loads verify the previous virtual URI directly.
-            if not self.selection_pending and not await self.virtual_matches(self._current_proxy_url):
+            expected = self._current_proxy_url
+            self.loading_previous_uri = await client.get_media_info()
+            if not self.selection_pending and (not expected or self.loading_previous_uri != expected
+                                               or expected != self._current_proxy_url):
+                if self.loading_previous_uri:
+                    await self.release_source()
                 raise EndpointUnavailable('external_source')
         elif self._starting_playback and action == 'Play':
             # URI loading has a single bounded read-only confirmation window.
             deadline = asyncio.get_running_loop().time() + 5
-            while await client.get_media_info() != self.loading_uri:
+            while True:
+                uri = await client.get_media_info()
+                if uri == self.loading_uri:
+                    break
+                if uri and uri != self.loading_previous_uri:
+                    await self.release_source()
+                    raise EndpointUnavailable('external_source_during_load')
                 self.check_operation()
                 if asyncio.get_running_loop().time() >= deadline:
                     raise EndpointUnavailable('loaded_uri_not_confirmed')

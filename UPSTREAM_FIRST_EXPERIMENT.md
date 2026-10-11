@@ -170,6 +170,47 @@ binding/controller entrypoint active. There were zero restarts, an idle speaker
 and no Android session selected at verification. Checks sent no transport,
 volume or zone mutations. Audible playback and real reporting are not claimed.
 
+### Hardware state mismatch and local atomic-load correction
+
+On the deployed image the user reported a steady connection and a playing track,
+but Android offered only Play rather than Pause; tapping Play restarted the track.
+Read-only checks found upstream status idle/no now-playing metadata while the
+virtual renderer reported PLAYING on the upstream audio proxy. The session was
+still present and the companion endpoint available. Logs recorded three
+`stale_upstream_command` failures after an acknowledged SetAVTransportURI, before
+the URI/Play sequence and upstream playing/reporting phase could complete. This
+is not evidence of a failed Pause SOAP action: no Pause was offered/sent.
+
+The matching failure was reproduced against the deployed source with synthetic
+SOAP: a newer same-session player generation arriving during URI acknowledgement
+aborted the started load. The precise live triggering packet is not separately
+captured, so it is not claimed that this is the only possible failure.
+
+The local correction distinguishes ordinary queued player intents from stock
+command-handler activation/disconnect authority. Player generations still reject
+superseded metadata work before the first mutation. Once a URI write starts,
+stock URI+Play completes atomically under the same selection/source/activation
+authority; a newer same-session snapshot then runs under upstream's playback
+lock, without an unnecessary reload. Native Spotify, virtual-source conflict,
+deactivation, disconnect/reactivation, endpoint retirement and fresh selection
+remain terminal for old work, including during the committed load. It adds no
+retry, compensating Stop, admission lease or session-ID replay registry.
+
+The source suite passed **115 Python tests**, including actual queued upstream
+`apply_remote_state`, playing/start-report completion, pre-mutation supersession,
+and deactivation/disconnect during acknowledged URI loading. Rejection diagnostics
+contain only boolean categories, never session IDs, source URLs or credentials.
+Prepared-image results are recorded separately below. The correction is **not
+deployed**, and no subsequent hardware success, Pause/resume or real scrobble is
+claimed. The approved live image remains at implementation `a1986d7`.
+
+The read-only URI confirmation window tolerates only an empty observation or the
+freshly observed pre-load URI while waiting for the requested URI. A positive
+foreign virtual source is terminal immediately, even if an old bridge URI might
+reappear later. Prepared correction image tag:
+`raumfeld-connect:upstream-first-atomic-load-review`; deployment requires a new
+explicit approval.
+
 ```sh
 docker build --build-arg PLAYBACK_PATH=upstream_first \
   --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" \

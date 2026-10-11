@@ -102,6 +102,11 @@ def install_runtime(room, token, companion_base='http://127.0.0.1:8787'):
             started = await super().start()
             if started:
                 self._backend.bind_player(self._player)
+                # Stock command-handler generations distinguish actual source
+                # authority changes from ordinary queued SET_STATE commands.
+                self._backend.bind_authority(lambda: (
+                    self._playback_handler._generation, self._playback_handler._active
+                ) if self._playback_handler else None)
             return started
 
         async def stop(self):

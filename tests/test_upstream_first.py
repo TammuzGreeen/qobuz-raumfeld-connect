@@ -20,6 +20,7 @@ from qobuz_proxy.playback.play_reporter import PlayReporter
 from qobuz_proxy.playback.queue import RepeatMode
 from qobuz_proxy.connect.discovery import DiscoveryService
 from qobuz_proxy.connect.ws_manager import WsManager
+from qobuz_proxy.playback.command_handler import PlaybackCommandHandler
 from qobuz_proxy.config import Config, SpeakerConfig
 from qobuz_proxy.speaker import Speaker
 import qobuz_proxy.app as app_module
@@ -286,6 +287,126 @@ class UpstreamRoomTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await player.next_track())
         self.assertEqual(self.mutations()[-3:], ['Stop', 'SetAVTransportURI', 'Play'])
 
+    def stock_player(self):
+        metadata = MagicMock()
+        metadata.get_track_format.return_value = (6, 44100, 16)
+        metadata.get_track_actual_quality.return_value = 6
+        metadata.get_track_blob.return_value = 'synthetic-blob'
+        api = MagicMock()
+        api.report_streaming_start = AsyncMock(return_value=True)
+        api.report_streaming_end = AsyncMock(return_value=True)
+        player = QobuzPlayer(queue=QobuzQueue(), metadata_service=metadata,
+            backend=self.backend, play_reporter=PlayReporter(api))
+        self.backend.bind_player(player)
+        player.set_playback_permission_check(self.backend.can_apply_remote_state)
+        track = MagicMock()
+        track.track_id, track.streaming_url = '101', 'http://audio.example.test/synthetic.flac'
+        track.url_is_stale.return_value = False
+        track.metadata, track.duration_ms = {'title': 'Synthetic', 'duration_ms': 180000}, 180000
+        track.context_uuid = bytes([1]) * 16
+        player._current_track = track
+        return player, api
+
+    async def test_same_session_new_snapshot_during_uri_ack_finishes_atomic_load_and_reports_playing(self):
+        player, api = self.stock_player()
+        async def hook(action):
+            if action == 'SetAVTransportURI':
+                # A newer SET_STATE registers its generation while waiting on
+                # the upstream playback lock. Authority/source have not changed.
+                player._next_generation()
+        self.hook = hook
+        self.backend.prepare_for_selection()
+        self.assertTrue(await player._start_playback())
+        self.assertEqual(self.mutations(), ['SetAVTransportURI', 'Play'])
+        self.assertEqual(player.state, PlaybackState.PLAYING)
+        api.report_streaming_start.assert_awaited_once()
+
+    async def test_upstream_deactivation_during_uri_ack_still_prevents_play_and_report(self):
+        player, api = self.stock_player()
+        handler = PlaybackCommandHandler(player)
+        self.backend.bind_authority(lambda: (handler._generation, handler._active))
+        self.backend.prepare_for_selection()
+        handler._note_active(True)
+        async def hook(action):
+            if action == 'SetAVTransportURI':
+                handler._note_active(False)
+        self.hook = hook
+        self.assertFalse(await player._start_playback())
+        self.assertEqual(self.mutations(), ['SetAVTransportURI'])
+        api.report_streaming_start.assert_not_awaited()
+
+    async def test_real_queued_remote_state_after_uri_ack_does_not_reload_or_lose_playing(self):
+        player, api = self.stock_player()
+        pending = []
+        async def hook(action):
+            if action == 'SetAVTransportURI' and not pending:
+                pending.append(asyncio.create_task(player.apply_remote_state(
+                    track_id='101', queue_item_id=1, position_ms=None, playing_state=2)))
+                await asyncio.sleep(0)  # New intent registers, then waits on lock.
+        self.hook = hook
+        self.backend.prepare_for_selection()
+        try:
+            async with player._playback_lock:
+                self.assertTrue(await player._start_playback())
+            await asyncio.wait_for(pending[0], 5)
+            self.assertEqual(self.mutations(), ['SetAVTransportURI', 'Play'])
+            self.assertEqual(player.state, PlaybackState.PLAYING)
+            api.report_streaming_start.assert_awaited_once()
+        finally:
+            for task in pending:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+
+    async def test_disconnect_and_reactivation_cannot_revive_committed_old_load(self):
+        player, api = self.stock_player()
+        handler = PlaybackCommandHandler(player)
+        self.backend.bind_authority(lambda: (handler._generation, handler._active))
+        self.backend.prepare_for_selection()
+        handler._note_active(True)
+        async def hook(action):
+            if action == 'SetAVTransportURI':
+                handler.note_disconnected()
+                handler._note_active(True)
+        self.hook = hook
+        self.assertFalse(await player._start_playback())
+        self.assertEqual(self.mutations(), ['SetAVTransportURI'])
+        api.report_streaming_start.assert_not_awaited()
+
+    async def test_foreign_virtual_uri_during_committed_load_is_terminal_not_a_retry_window(self):
+        readings = 0
+        async def hook(action):
+            nonlocal readings
+            if action == 'GetMediaInfo' and 'SetAVTransportURI' in self.commands:
+                readings += 1
+                self.uri = ('http://competitor.example.test/foreign' if readings == 1
+                            else self.backend.loading_uri)
+        self.hook = hook
+        with self.assertRaises(EndpointUnavailable):
+            await self.start()
+        self.assertTrue(self.backend._external_playback)
+        self.assertEqual(readings, 1)
+        self.assertEqual(self.mutations(), ['SetAVTransportURI'])
+
+    async def test_newer_player_intent_before_first_mutation_still_supersedes_old_metadata(self):
+        player, api = self.stock_player()
+        entered, proceed = asyncio.Event(), asyncio.Event()
+        async def stream(_):
+            entered.set()
+            await proceed.wait()
+            return 'http://audio.example.test/stale.flac'
+        player.metadata.get_streaming_url = AsyncMock(side_effect=stream)
+        player._current_track.streaming_url = None
+        player._current_track.url_is_stale.return_value = True
+        self.backend.prepare_for_selection()
+        task = asyncio.create_task(player._start_playback())
+        await entered.wait()
+        player._next_generation()
+        proceed.set()
+        self.assertFalse(await task)
+        self.assertEqual(self.mutations(), [])
+        api.report_streaming_start.assert_not_awaited()
+
     async def test_old_pause_cannot_write_after_new_selection_even_on_same_uri(self):
         await self.start()
         original = self.backend._client.get_media_info
@@ -385,6 +506,7 @@ class UpstreamRoomTests(unittest.IsolatedAsyncioTestCase):
             with patch.object(WsManager, 'start', new=AsyncMock()), \
                  patch.object(WsManager, 'send_volume_changed', new=AsyncMock()):
                 await speaker._setup_websocket(tokens)
+            speaker._playback_handler._note_active(True)
             manager, player, queue = speaker._ws_manager, speaker._player, speaker._queue
             session_uuid = manager._session_uuid
             metadata = speaker._metadata_service
