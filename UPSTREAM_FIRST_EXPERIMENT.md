@@ -637,3 +637,28 @@ initial playback, test Next once and inspect categorical diagnostics, then repea
 Pause/resume, natural advancement, Android volume and physical knobs on this exact
 image. Renderer PLAYING, SOAP acknowledgements and synthetic success do not establish
 audibility, real reporting acknowledgement or account-visible scrobbles.
+
+## Approved partial-state deployment
+
+User separately approved deployment and same-image control acceptance. Candidate
+implementation `560ee29e19e242fb336281823aa2caa36d9bcafc` is now deployed as
+`raumfeld-connect:upstream-first-partial-state-review`. The privately transferred
+archive checksum matched; imported image ID is
+`sha256:4baf7a4f6b3d480a00e8f8abe0f9711a8df3747cee2cbaa8368e0e01d528679f`
+(distinct from the local OCI index ID above).
+
+Deployment changed only the image/pull policy, retained a private rollback archive
+and complete before-state, and completed the app update once without retry.
+Verified healthy/authenticated, zero restarts, unchanged environment mapping,
+host networking, mounts, original configuration/credential file hashes and optional
+credential-cache state, same room configuration/identity/membership and available
+virtual endpoint, unchanged unrelated running containers, diagnostics enabled and
+no legacy receiver/service entrypoints. An initial process check expected a script
+path; the actual exact argv pair is `-m`, `qobuz.upstream_app`, which passed the
+corrected read-only check. No transport commands were sent by the agent; startup
+diagnostics contained zero SOAP transmissions.
+
+**Deployed, not hardware-accepted; `hardwareVerified: false`.** Initial audible
+playback and Next remain pending user observation on this image, followed by
+Pause/resume, natural advancement, Android volume and physical knob feedback.
+Reporting/scrobbling and uninterrupted Spotify remain separate outstanding tests.
