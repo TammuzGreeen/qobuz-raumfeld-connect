@@ -327,6 +327,41 @@ renderer disappearance/rebinding and exhausted-queue restart remain unverified.
 No real reporting HTTP acknowledgement or account-visible scrobble is claimed by
 these playback/state observations.
 
+### Volume observations and failed Android Next diagnosis
+
+The user confirmed a small Android volume adjustment changed audible volume,
+stayed at the new level without jumping back and kept the connection steady.
+Physical knobs also changed audible volume; Android's indicator followed and the
+connection stayed steady. These establish user-observed volume control/feedback,
+not proof that cloud feedback never issues another setter under every race.
+
+Android Next-button acceptance then failed: the user reported no audible next
+track, while Android still showed Pause and the connection seemed steady.
+Read-only status found upstream idle/no now-playing metadata, the renderer
+STOPPED at position zero, and an authenticated/present session with an available
+endpoint. The renderer URI still identified the previously started upstream
+audio-proxy track, not the newly loaded one. Logs showed a new track loading and
+successfully loaded metadata, but no subsequent start/playing event, failed start,
+new generation rejection or command-handler traceback for that attempt. No
+audio HTTP request for the newly loaded track was present in retained logs.
+This narrows the failed boundary to loaded-track-to-transport-start, not a
+confirmed Play/SOAP acknowledgement followed by silent delivered audio. The
+earlier superseded post-load Seek traceback predates this attempt and is not
+evidence that it caused Next to fail.
+
+A private offline replay using the actual stock command handler and synthetic
+protobuf reproduced this state when the new-item SET_STATE omitted playingState:
+the outgoing renderer stopped, the next item loaded, the old URI remained and
+no new URI/Play was written. A subsequent explicit PLAYING SET_STATE successfully
+sent URI+Play. This demonstrates a compatible load-only path, **not** the exact
+live packet: decoded live state fields and supersession decisions are not logged
+at current INFO verbosity. A load-only/paused Next snapshot or an unobserved
+superseding state remains a hypothesis pending sanitized command-state evidence.
+Do not compensate by auto-playing a metadata/selection snapshot or retrying
+transport. No live configuration/image changes or speaker mutations were made
+during diagnosis. Manual Next remains failed; reporting, source handoffs and
+remaining hardware acceptance are still unverified.
+
 ```sh
 docker build --build-arg PLAYBACK_PATH=upstream_first \
   --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" \
