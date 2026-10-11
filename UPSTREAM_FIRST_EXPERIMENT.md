@@ -419,6 +419,46 @@ transport, volume or zone mutations were issued. Next reproduction and exact
 command-state diagnosis on this image remain pending user-driven testing; this
 deployment is not a playback fix and is not overall hardware acceptance.
 
+### Diagnosed split Next/Play race and correction candidate
+
+On the diagnostic image, initial playback was user-confirmed audible with Pause
+shown and a steady connection. One user-driven Next did not start new audio;
+Android returned to the currently running track. Categorical diagnostic records
+identified the actual sequence: a different current item arrived without a
+playingState or position, followed approximately 42 ms later by state-only
+PLAYING with neither current item nor position. The item-selection handler had
+entered stock `_load_track_locked` and was reading ownership before Stop. The
+following Play registered a newer player generation; our pre-write guard rejected
+the selection handler's Stop before `soap_sending`. The load failed without
+changing the current track. State-only Play then found the old track still
+PLAYING and returned success without URI/Play for the new item. Subsequent state
+reports continued to advertise the old item. Selection and activation authority
+were unchanged throughout this attempt.
+
+This confirms a split item/Play serialization defect for this diagnostic attempt,
+not a missing Play packet, silent acknowledged audio delivery, native source
+takeover or network/session failure. The prior non-diagnostic silent Next had
+different visible end state; its exact packets were not captured and are not
+retrospectively claimed identical. The diagnostic image did not fix playback.
+
+The exact two-message/pre-Stop-read race was reproduced against deployed source
+with synthetic protobuf and SOAP: the previous item remained current. The local
+correction keeps stock locked item loading and defers only incoming state-only
+PLAYING while that load is in flight. It registers the follow-up's upstream
+generation after the selected item successfully loads. It never infers Play from
+selection metadata. Failed loads, changed selection/activation/source, changed
+target and newer real player intents discard the deferred Play. Explicit Pause,
+different item selection, deactivation/disconnect and Spotify still supersede;
+failed or uncertain transport commands are not retried.
+
+Source validation passed **135 Python tests**, including the exact split Next/Play
+race, source takeover, new selection, deactivation, disconnect/reactivation,
+genuine Pause, newer item selection and failed Stop while split Play waits.
+Existing diagnostics, metadata-feedback, pre-mutation supersession, source safety
+and stock connection tests remain intact. This correction is **not deployed**;
+only diagnostic implementation `69fd394` is currently approved/live. Deployment
+of the new playback correction requires separate user approval.
+
 ```sh
 docker build --build-arg PLAYBACK_PATH=upstream_first \
   --build-arg UPSTREAM_STATE_DIAGNOSTICS=1 \

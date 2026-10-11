@@ -309,6 +309,136 @@ class UpstreamRoomTests(unittest.IsolatedAsyncioTestCase):
         player._current_track = track
         return player, api
 
+    async def test_split_next_item_then_state_only_play_during_pre_stop_read_starts_new_item(self):
+        player, api = self.stock_player()
+        meta = MagicMock()
+        meta.to_dict.return_value = {'title': 'Synthetic next', 'duration_ms': 180000}
+        player.metadata.get_metadata = AsyncMock(return_value=meta)
+        player.metadata.get_streaming_url = AsyncMock(return_value='http://audio.example.test/next.flac')
+        handler = PlaybackCommandHandler(player)
+        self.backend.bind_authority(lambda: (handler._generation, handler._active))
+        handler._note_active(True)
+        self.backend.prepare_for_selection()
+        operation.set(None)
+        self.assertTrue(await player.play())
+        pending = []
+        reads = 0
+        async def hook(action):
+            nonlocal reads
+            if action == 'GetMediaInfo':
+                reads += 1
+            if action == 'GetMediaInfo' and reads == 2 and not pending:
+                msg = payload_pb2.QConnectMessage()
+                msg.srvrRndrSetState.playingState = 2
+                pending.append(handler.dispatch_message(41, msg))
+                await asyncio.sleep(0)
+        self.hook = hook
+        msg = payload_pb2.QConnectMessage()
+        msg.srvrRndrSetState.currentQueueItem.trackId = 102
+        msg.srvrRndrSetState.currentQueueItem.queueItemId = 2
+        try:
+            await handler.dispatch_message(41, msg)
+            await asyncio.wait_for(asyncio.gather(*pending), 5)
+            self.assertEqual(player.current_track.track_id, '102')
+            self.assertEqual(player.state, PlaybackState.PLAYING)
+            self.assertEqual(self.mutations(), ['SetAVTransportURI', 'Play', 'Stop', 'SetAVTransportURI', 'Play'])
+            self.assertEqual(api.report_streaming_start.await_count, 2)
+        finally:
+            for task in pending:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+
+    async def split_play_interruption(self, interrupt):
+        player, api = self.stock_player()
+        meta = MagicMock()
+        meta.to_dict.return_value = {'title': 'Synthetic next', 'duration_ms': 180000}
+        player.metadata.get_metadata = AsyncMock(return_value=meta)
+        player.metadata.get_streaming_url = AsyncMock(return_value='http://audio.example.test/next.flac')
+        handler = PlaybackCommandHandler(player)
+        self.backend.bind_authority(lambda: (handler._generation, handler._active))
+        handler._note_active(True)
+        self.backend.prepare_for_selection()
+        operation.set(None)
+        self.assertTrue(await player.play())
+        pending = []
+        reads = 0
+        if interrupt == 'failed_stop':
+            self.failure = 'Stop'
+        async def hook(action):
+            nonlocal reads
+            if action == 'GetMediaInfo':
+                reads += 1
+            if action != 'GetMediaInfo' or reads != 2 or pending:
+                return
+            msg = payload_pb2.QConnectMessage()
+            msg.srvrRndrSetState.playingState = 2
+            pending.append(handler.dispatch_message(41, msg))
+            await asyncio.sleep(0)
+            if interrupt == 'native':
+                self.row['spotifyVersion'] += 1
+            elif interrupt == 'selection':
+                self.backend.prepare_for_selection()
+            elif interrupt == 'deactivation':
+                handler._note_active(False)
+            elif interrupt == 'disconnect':
+                handler.note_disconnected()
+                handler._note_active(True)
+            elif interrupt == 'pause':
+                msg = payload_pb2.QConnectMessage()
+                msg.srvrRndrSetState.playingState = 3
+                pending.append(handler.dispatch_message(41, msg))
+                await asyncio.sleep(0)
+            elif interrupt == 'different_item':
+                msg = payload_pb2.QConnectMessage()
+                msg.srvrRndrSetState.currentQueueItem.trackId = 103
+                msg.srvrRndrSetState.currentQueueItem.queueItemId = 3
+                pending.append(handler.dispatch_message(41, msg))
+                await asyncio.sleep(0)
+        self.hook = hook
+        msg = payload_pb2.QConnectMessage()
+        msg.srvrRndrSetState.currentQueueItem.trackId = 102
+        msg.srvrRndrSetState.currentQueueItem.queueItemId = 2
+        try:
+            await handler.dispatch_message(41, msg)
+            await asyncio.wait_for(asyncio.gather(*pending), 5)
+            writes = self.mutations()[2:]
+            self.assertNotIn('SetAVTransportURI', writes)
+            self.assertNotIn('Play', writes)
+            self.assertEqual(api.report_streaming_start.await_count, 1)
+            self.assertIsNone(self.backend.pending_track_load)
+            if interrupt == 'failed_stop':
+                self.assertEqual(writes, ['Stop'])
+                self.assertTrue(self.backend._external_playback)
+            if interrupt == 'different_item':
+                self.assertEqual(player.current_track.track_id, '103')
+        finally:
+            for task in pending:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+
+    async def test_split_play_does_not_reclaim_native_source(self):
+        await self.split_play_interruption('native')
+
+    async def test_split_play_does_not_inherit_new_selection(self):
+        await self.split_play_interruption('selection')
+
+    async def test_split_play_does_not_survive_deactivation(self):
+        await self.split_play_interruption('deactivation')
+
+    async def test_split_play_does_not_survive_disconnect_and_reactivation(self):
+        await self.split_play_interruption('disconnect')
+
+    async def test_genuine_pause_supersedes_split_play(self):
+        await self.split_play_interruption('pause')
+
+    async def test_newer_item_selection_supersedes_old_split_play(self):
+        await self.split_play_interruption('different_item')
+
+    async def test_split_play_does_not_retry_failed_stop(self):
+        await self.split_play_interruption('failed_stop')
+
     async def test_passive_snapshot_before_uri_cannot_cancel_load_or_strand_playback(self):
         player, api = self.stock_player()
         pending = []

@@ -216,6 +216,7 @@ class DeferredRoomBackend(DLNABackend):
         self.player = None
         self.authority_reader = None
         self.pending_load = None
+        self.pending_track_load = None
         self.closed = False
         self.poll_seconds = poll_seconds
         self._gapless_supported = False
@@ -257,7 +258,7 @@ class DeferredRoomBackend(DLNABackend):
                            captured[2] if captured else current[2]))
             return generation
         player._next_generation = next_generation
-        for name in ('_play_locked', '_start_playback'):
+        for name in ('_play_locked', '_start_playback', '_load_track_locked'):
             original = getattr(player, name)
             def wrap(original):
                 @wraps(original)
@@ -265,13 +266,29 @@ class DeferredRoomBackend(DLNABackend):
                     # Carry upstream's generation across metadata/URL/reporting awaits.
                     token = operation.set(operation.get() or self.capture_operation())
                     load = None
+                    track_load = None
                     try:
                         self.check_operation()
                         if original.__name__ == '_start_playback':
                             load = (asyncio.Event(), self.capture_operation(), player._current_track)
                             self.pending_load = load
-                        return await original(*args, **kwargs)
+                        elif original.__name__ == '_load_track_locked':
+                            track_load = {
+                                'done': asyncio.Event(), 'operation': self.capture_operation(),
+                                'item': args[0] if args else kwargs['queue_item_id'],
+                                'track': args[1] if len(args) > 1 else kwargs['track_id'],
+                                'successful': False,
+                            }
+                            self.pending_track_load = track_load
+                        result = await original(*args, **kwargs)
+                        if track_load is not None:
+                            track_load['successful'] = result is True
+                        return result
                     finally:
+                        if track_load is not None:
+                            if self.pending_track_load is track_load:
+                                self.pending_track_load = None
+                            track_load['done'].set()
                         if load is not None:
                             if self.pending_load is load:
                                 self.pending_load = None
@@ -283,6 +300,23 @@ class DeferredRoomBackend(DLNABackend):
         original_apply = player.apply_remote_state
         @wraps(original_apply)
         async def apply_remote_state(**kwargs):
+            track_load = self.pending_track_load
+            if (track_load is not None and kwargs.get('playing_state') == 2
+                    and kwargs.get('track_id') is None and kwargs.get('queue_item_id') is None):
+                # Android Next is split into new-item selection, then state-only
+                # Play. This Play addresses the item being loaded, not the old
+                # current item. Register its upstream generation after that
+                # stock locked load instead of invalidating its pre-Stop reads.
+                captured = operation.get() or self.capture_operation()
+                logger.info('Deferred state-only Play behind selected-item load')
+                await track_load['done'].wait()
+                current = player.current_track
+                if (not track_load['successful'] or captured != self.capture_operation()
+                        or track_load['operation'] != self.capture_operation()
+                        or current is None or current.track_id != track_load['track']
+                        or current.queue_item_id != track_load['item'] or self.closed or self._external_playback):
+                    logger.info('Dropped superseded split-item Play')
+                    return
             load = self.pending_load
             track = load[2] if load else None
             # A same-item metadata-only snapshot is not a new transport intent.
