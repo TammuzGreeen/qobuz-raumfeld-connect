@@ -561,3 +561,51 @@ acknowledgement, reported PLAYING, audio bytes, audible playback and visible
 scrobbles are separate outcomes. The deployed hybrid's failures do not validate
 or invalidate this distinct architecture. Automated reporting uses a synthetic
 API: it does not establish real HTTP acknowledgement, history or Last.fm visibility.
+# Partial-state comparative review and candidate (not deployed)
+
+Reviewed both captured Android Next orders against unmodified pinned upstream
+`91db990abeb486005a8315a6b1e722df776c4ba4` and deployed integration `78f6f06`,
+using actual stock protobuf/command handler/player and the same deterministic fake
+DLNA SOAP transport. Field absence is preserved; event gates reproduce the
+pre-Stop ownership-read interleaving without message-pairing timing windows.
+
+| Implementation | Item → Play at pre-Stop read | Play → item (state/position absent) |
+| --- | --- | --- |
+| Unmodified pinned upstream | New URI + Play | Stop/load only; no new URI/Play |
+| Current deployed integration | New URI + Play | Stop/load only; no new URI/Play |
+| Deployed integration with its ordering deferral removed | Cancelled before Stop; old item retained | Same upstream load-only defect |
+| Unmodified newer upstream HEAD `10dedc9d2ac0ff2edcad729e22876d2c7f158c8e` | New URI + Play | Same load-only defect |
+| Isolated player patch + simplified integration candidate | New URI + Play | New URI + Play |
+
+The earlier selection → Play cancellation was introduced by our mid-command
+generation checks; the reversed failure originates in upstream's treatment of
+omitted playingState. These are distinct causes. Current upstream's manual-skip
+fix `ab51375` (#33) handles queue-only feedback, not the reversed item/state delta.
+No dependency upgrade is proposed; pin and stock sessions/queue/reporting remain.
+
+The candidate separates requested mode from observed renderer state, merges
+partial outstanding intent, and treats identical transport intent as one generation.
+It removes both load deferrals and the committed-load generation exception.
+Source/activation authority remains captured across awaits, and supersession is
+checked before URI transmission. Explicit fresh selection clears inherited mode.
+Node remains discovery/on-demand renderer creation only.
+
+Isolated source backport and standalone upstream-facing tests are under
+`upstream-patches/`; Docker applies only to hash-verified pinned source. No
+contribution has been submitted. Synthetic coverage includes both orders,
+startup/paused selections, explicit Pause/Stop during loading, rapid newer targets,
+queue-only feedback, takeover, disconnect/reactivation, failed writes and terminal
+source/topology conflict. Internal Stop does not erase admitted Play; paused or
+revoked selection never invents it. After URI transmission begins, stock's locked
+URI+Play transaction completes under unchanged source authority, then queued Pause
+applies; this is explicitly tested, not claimed as instantaneous cancellation.
+
+Pre-image regression results: 146 project Python tests plus four standalone
+contribution tests passed, as did all six original pinned upstream serialization
+tests. Image checks and hardware acceptance are recorded separately below.
+The local Compose override names the prepared review candidate only; it does not
+change the running deployment. Hardware verification remains false. No speaker
+mutation or new deployment has been performed for this review. Next, Pause/resume,
+natural advancement, Android volume and physical knob feedback must all be retested
+on this same candidate after separate deployment approval. Reporting/scrobbling,
+uninterrupted Spotify and outstanding handoff/rebinding acceptance remain separate.

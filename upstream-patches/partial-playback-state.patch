@@ -1,0 +1,188 @@
+diff --git a/qobuz_proxy/playback/player.py b/qobuz_proxy/playback/player.py
+index 90dc895..fdc347c 100644
+--- a/qobuz_proxy/playback/player.py
++++ b/qobuz_proxy/playback/player.py
+@@ -110,6 +110,10 @@ class QobuzPlayer:
+         # the lock (latest-command-wins).
+         self._playback_lock = asyncio.Lock()
+         self._command_generation = 0
++        # Requested playback mode is independent of an internal renderer Stop
++        # while replacing a track. An omitted proto field is not a Stop request.
++        self._requested_playing_state: Optional[int] = None
++        self._pending_remote_state: Optional[dict] = None
+         self._playback_permission_check: Optional[Callable[[], Awaitable[bool]]] = None
+ 
+         # State reporting - supports both callback and StateReporter
+@@ -423,6 +427,8 @@ class QobuzPlayer:
+ 
+     def invalidate_pending_commands(self) -> None:
+         """Revoke queued/in-flight playback intents without interrupting current audio."""
++        self._requested_playing_state = None
++        self._pending_remote_state = None
+         self._next_generation()
+         self._clear_skip_pending()
+ 
+@@ -457,6 +463,68 @@ class QobuzPlayer:
+         position_ms: Optional[int],
+         playing_state: Optional[int],
+         context_uuid: Optional[bytes] = None,
++    ) -> None:
++        """Merge partial SET_STATE fields before serializing the latest intent.
++
++        Android sends an item change and PLAYING separately, in either order.
++        Preserve a still-pending item when a state-only command supersedes its
++        task, and preserve admitted playback mode when an item-only delta arrives.
++        No timing window is involved. Ownership invalidation clears both fields.
++        """
++        # Queue-only feedback carries no playback intent (upstream GitHub #33).
++        if track_id is None and position_ms is None and playing_state is None:
++            return
++        pending = self._skip_pending_track
++        if (self._request_next_track and pending is not None and playing_state not in (1, 3)
++                and (track_id is None or (track_id == pending.track_id
++                     and (queue_item_id is None or queue_item_id == pending.queue_item_id)))):
++            return
++        supplied = dict(track_id=track_id, queue_item_id=queue_item_id,
++                        position_ms=position_ms, playing_state=playing_state,
++                        context_uuid=context_uuid)
++        if self._is_stale_pause_snapshot_locked(track_id, position_ms, playing_state):
++            await self._apply_remote_state(**supplied)
++            return
++        request = dict(self._pending_remote_state or dict(
++            track_id=None, queue_item_id=None, position_ms=None,
++            playing_state=self._requested_playing_state, context_uuid=None))
++        if track_id is not None:
++            if track_id != request['track_id'] or queue_item_id != request['queue_item_id']:
++                request['position_ms'] = None
++                request['context_uuid'] = None
++            request['track_id'] = track_id
++            request['queue_item_id'] = queue_item_id
++        for field in ('position_ms', 'playing_state', 'context_uuid'):
++            if supplied[field] is not None:
++                request[field] = supplied[field]
++        previous = self._pending_remote_state
++        current = self._current_track
++        def transport_intent(state: dict) -> tuple:
++            return (state['track_id'] if state['track_id'] is not None else current.track_id if current else None,
++                    state['queue_item_id'] if state['queue_item_id'] is not None else current.queue_item_id if current else None,
++                    state['position_ms'], state['playing_state'])
++        baseline = previous or dict(track_id=None, queue_item_id=None, position_ms=None,
++                                    playing_state=self._requested_playing_state)
++        # Complementary/repeated fields do not revoke the identical transaction
++        # already holding the playback lock. Real target/state/seek changes do.
++        request['generation'] = (previous['generation'] if previous else self._command_generation) \
++            if transport_intent(request) == transport_intent(baseline) else self._next_generation()
++        self._pending_remote_state = request
++        try:
++            await self._apply_remote_state(**request)
++        finally:
++            if self._pending_remote_state is request:
++                self._pending_remote_state = None
++
++    async def _apply_remote_state(
++        self,
++        *,
++        track_id: Optional[str],
++        queue_item_id: Optional[int],
++        position_ms: Optional[int],
++        playing_state: Optional[int],
++        context_uuid: Optional[bytes] = None,
++        generation: Optional[int] = None,
+     ) -> None:
+         """Apply a full SET_STATE intent from the app atomically.
+ 
+@@ -493,7 +561,7 @@ class QobuzPlayer:
+             )
+         ):
+             return
+-        gen = self._next_generation()
++        gen = generation if generation is not None else self._next_generation()
+         async with self._playback_lock:
+             if gen != self._command_generation:
+                 logger.debug("SET_STATE superseded by newer command; skipping")
+@@ -509,6 +577,8 @@ class QobuzPlayer:
+             # before any mutation so a replayed snapshot can't overwrite live
+             # state (position or context) with its outdated values.
+             stale = self._is_stale_pause_snapshot_locked(track_id, position_ms, playing_state)
++            if not stale and playing_state in (1, 2, 3):
++                self._requested_playing_state = playing_state
+ 
+             if (
+                 self._skip_pending_track is not None
+@@ -721,6 +791,7 @@ class QobuzPlayer:
+             return await self._play_locked(position_ms)
+ 
+     async def _play_locked(self, position_ms: int = 0) -> bool:
++        self._requested_playing_state = 2
+         logger.debug(f"Play command, current state: {self._state}")
+ 
+         # Resume from pause
+@@ -844,6 +915,7 @@ class QobuzPlayer:
+             return await self._pause_locked()
+ 
+     async def _pause_locked(self) -> bool:
++        self._requested_playing_state = 3
+         if self._state != PlaybackState.PLAYING:
+             logger.debug(f"Cannot pause in state {self._state}")
+             return False
+@@ -879,6 +951,7 @@ class QobuzPlayer:
+             await self._stop_playback_locked()
+ 
+     async def _stop_playback_locked(self) -> None:
++        self._requested_playing_state = 1
+         # Clear gapless state — explicit stop
+         self._clear_gapless_state()
+         self._clear_skip_pending()
+@@ -1130,6 +1203,7 @@ class QobuzPlayer:
+             # open session would inflate the next play's reported duration).
+             await self._report_stopped()
+             logger.info("End of queue - playback stopped")
++            self._requested_playing_state = 1
+             return False
+ 
+         # Start playing next track
+@@ -1214,6 +1288,9 @@ class QobuzPlayer:
+         if not self._current_track:
+             return False
+ 
++        generation = self._command_generation
++        self._requested_playing_state = 2
++
+         track = self._current_track
+         logger.info(f"Starting playback: track {track.track_id}")
+ 
+@@ -1276,6 +1353,10 @@ class QobuzPlayer:
+                     )
+ 
+             # Start playback on backend
++            if generation != self._command_generation:
++                if self._state == PlaybackState.LOADING:
++                    self._state = PlaybackState.STOPPED
++                return False
+             await self.backend.play(url, backend_meta)
+ 
+             # Update state. Report the start position, not 0 — the caller
+@@ -1442,6 +1523,7 @@ class QobuzPlayer:
+ 
+         # No next track available - stop playback
+         logger.info("No next track available - playback stopped")
++        self._requested_playing_state = 1
+         self._state = PlaybackState.STOPPED
+         self._current_track = None
+         self._position_value_ms = 0
+@@ -1817,6 +1899,7 @@ class QobuzPlayer:
+                         pass
+                     elif backend_state == PlaybackState.PAUSED:
+                         # External pause (e.g., DLNA device)
++                        self._requested_playing_state = 3
+                         self._state = PlaybackState.PAUSED
+                         await self._send_state_update()
+                         # Stop the played-time clock so this pause is excluded
+@@ -1845,6 +1928,7 @@ class QobuzPlayer:
+                         if self._paused_stop_polls >= _PAUSED_STOP_CONFIRMATIONS:
+                             self._paused_stop_polls = 0
+                             self._state = PlaybackState.STOPPED
++                            self._requested_playing_state = 1
+                             # Zero the position like _stop_playback_locked: a
+                             # stale pause-point position makes "previous" try a
+                             # restart-seek on a stopped renderer (a no-op)

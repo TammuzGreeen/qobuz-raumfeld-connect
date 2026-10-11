@@ -20,7 +20,6 @@ from .endpoint_catalog import Endpoint
 from .upstream_diagnostics import trace_soap
 
 operation = ContextVar('upstream_room_operation', default=None)
-committed_load = ContextVar('upstream_committed_load', default=None)
 logger = logging.getLogger(__name__)
 
 
@@ -128,12 +127,6 @@ class RoomDLNAClient(DLNAClient):
             if action not in {'SetAVTransportURI', 'Play', 'Pause', 'Stop', 'Seek', 'SetVolume'}:
                 raise EndpointUnavailable('unsupported_mutation')
             await self.backend.before_write(self, action)
-            if action == 'SetAVTransportURI':
-                # The stock player serializes its transport sequence. Once this
-                # URI write starts, finish URI + Play under the same source
-                # authority even if a newer same-session snapshot queues up.
-                # Selection, activation/disconnect and native takeover still win.
-                committed_load.set(operation.get())
             diagnostics = getattr(self.backend, 'diagnostics', None)
             if diagnostics:
                 diagnostics.emit('soap_sending', action=action)
@@ -215,8 +208,6 @@ class DeferredRoomBackend(DLNABackend):
         self.spotify_version = None
         self.player = None
         self.authority_reader = None
-        self.pending_load = None
-        self.pending_track_load = None
         self.closed = False
         self.poll_seconds = poll_seconds
         self._gapless_supported = False
@@ -243,6 +234,12 @@ class DeferredRoomBackend(DLNABackend):
         super().prepare_for_selection()
         self.selection_generation += 1
         self.selection_pending = True
+        if self.player:
+            token = operation.set(operation.get())
+            try:
+                self.player.invalidate_pending_commands()
+            finally:
+                operation.reset(token)
 
     def bind_player(self, player):
         self.player = player
@@ -258,85 +255,45 @@ class DeferredRoomBackend(DLNABackend):
                            captured[2] if captured else current[2]))
             return generation
         player._next_generation = next_generation
-        for name in ('_play_locked', '_start_playback', '_load_track_locked'):
+        original_apply = player.apply_remote_state
+        @wraps(original_apply)
+        async def apply_remote_state(**kwargs):
+            token = operation.set(operation.get() or self.capture_operation())
+            try:
+                self.check_operation()
+                return await original_apply(**kwargs)
+            finally:
+                operation.reset(token)
+        player.apply_remote_state = apply_remote_state
+        original_atomic_apply = player._apply_remote_state
+        @wraps(original_atomic_apply)
+        async def atomic_apply(**kwargs):
+            captured = operation.get() or self.capture_operation()
+            generation = kwargs.get('generation', captured[1])
+            token = operation.set((captured[0], generation, captured[2]))
+            try:
+                self.check_operation()
+                return await original_atomic_apply(**kwargs)
+            finally:
+                operation.reset(token)
+        player._apply_remote_state = atomic_apply
+        for name in ('_play_locked', '_start_playback'):
             original = getattr(player, name)
             def wrap(original):
                 @wraps(original)
                 async def with_generation(*args, **kwargs):
                     # Carry upstream's generation across metadata/URL/reporting awaits.
                     token = operation.set(operation.get() or self.capture_operation())
-                    load = None
-                    track_load = None
                     try:
                         self.check_operation()
-                        if original.__name__ == '_start_playback':
-                            load = (asyncio.Event(), self.capture_operation(), player._current_track)
-                            self.pending_load = load
-                        elif original.__name__ == '_load_track_locked':
-                            track_load = {
-                                'done': asyncio.Event(), 'operation': self.capture_operation(),
-                                'item': args[0] if args else kwargs['queue_item_id'],
-                                'track': args[1] if len(args) > 1 else kwargs['track_id'],
-                                'successful': False,
-                            }
-                            self.pending_track_load = track_load
-                        result = await original(*args, **kwargs)
-                        if track_load is not None:
-                            track_load['successful'] = result is True
-                        return result
+                        captured = operation.get()
+                        if captured[1] != self.capture_operation()[1]:
+                            raise EndpointUnavailable('superseded_player_entry')
+                        return await original(*args, **kwargs)
                     finally:
-                        if track_load is not None:
-                            if self.pending_track_load is track_load:
-                                self.pending_track_load = None
-                            track_load['done'].set()
-                        if load is not None:
-                            if self.pending_load is load:
-                                self.pending_load = None
-                            load[0].set()
                         operation.reset(token)
                 return with_generation
             setattr(player, name, wrap(original))
-
-        original_apply = player.apply_remote_state
-        @wraps(original_apply)
-        async def apply_remote_state(**kwargs):
-            track_load = self.pending_track_load
-            if (track_load is not None and kwargs.get('playing_state') == 2
-                    and kwargs.get('track_id') is None and kwargs.get('queue_item_id') is None):
-                # Android Next is split into new-item selection, then state-only
-                # Play. This Play addresses the item being loaded, not the old
-                # current item. Register its upstream generation after that
-                # stock locked load instead of invalidating its pre-Stop reads.
-                captured = operation.get() or self.capture_operation()
-                logger.info('Deferred state-only Play behind selected-item load')
-                await track_load['done'].wait()
-                current = player.current_track
-                if (not track_load['successful'] or captured != self.capture_operation()
-                        or track_load['operation'] != self.capture_operation()
-                        or current is None or current.track_id != track_load['track']
-                        or current.queue_item_id != track_load['item'] or self.closed or self._external_playback):
-                    logger.info('Dropped superseded split-item Play')
-                    return
-            load = self.pending_load
-            track = load[2] if load else None
-            # A same-item metadata-only snapshot is not a new transport intent.
-            # Let the stock locked load finish before stock apply_remote_state
-            # registers this feedback's generation. Actual play/pause/stop/seek
-            # or a different queue item still registers immediately and wins.
-            passive = (track is not None and kwargs.get('playing_state') is None
-                       and kwargs.get('position_ms') is None
-                       and kwargs.get('track_id') in (None, track.track_id)
-                       and kwargs.get('queue_item_id') in (None, track.queue_item_id))
-            if passive:
-                captured = operation.get() or self.capture_operation()
-                logger.info('Deferred same-item metadata-only feedback during playback load')
-                await load[0].wait()
-                if (captured != self.capture_operation() or load[1] != self.capture_operation()
-                        or track is not player._current_track or self.closed or self._external_playback):
-                    logger.info('Dropped superseded deferred playback feedback')
-                    return  # A newer real intent/source superseded this feedback.
-            return await original_apply(**kwargs)
-        player.apply_remote_state = apply_remote_state
 
     def capture_operation(self):
         return (self.selection_generation, self.player._command_generation if self.player else None,
@@ -350,15 +307,14 @@ class DeferredRoomBackend(DLNABackend):
         current = self.capture_operation()
         inactive = self.authority_reader and (current[2] is None or not current[2][1])
         superseded = captured is not None and (
-            captured[0] != current[0] or captured[2] != current[2] or
-            (captured[1] != current[1] and committed_load.get() != captured))
+            captured[0] != current[0] or captured[2] != current[2])
         if self.closed or self._external_playback or inactive or superseded:
             logger.warning('Rejected playback generation: selectionChanged=%s authorityChanged=%s '
-                           'commandSuperseded=%s committedLoad=%s inactive=%s',
+                           'commandSuperseded=%s inactive=%s',
                            bool(captured and captured[0] != current[0]),
                            bool(captured and captured[2] != current[2]),
                            bool(captured and captured[1] != current[1]),
-                           bool(captured and committed_load.get() == captured), bool(inactive))
+                           bool(inactive))
             raise EndpointUnavailable('stale_upstream_command')
 
     async def release_source(self):
@@ -472,7 +428,6 @@ class DeferredRoomBackend(DLNABackend):
         return await super().can_apply_remote_state()
 
     async def play(self, url, metadata):
-        atomic = committed_load.set(None)
         token = None
         if operation.get() is None:
             token = operation.set(self.capture_operation())
@@ -498,7 +453,6 @@ class DeferredRoomBackend(DLNABackend):
             self.check_operation()
             self.selection_pending = False
         finally:
-            committed_load.reset(atomic)
             if token is not None:
                 operation.reset(token)
 
@@ -548,6 +502,10 @@ class DeferredRoomBackend(DLNABackend):
         # Refresh that evidence again before the single transport write.
         await self.refresh()
         self.check_operation()
+        if action == 'SetAVTransportURI':
+            captured = operation.get()
+            if captured is not None and captured[1] != self.capture_operation()[1]:
+                raise EndpointUnavailable('superseded_before_uri')
         if client is not self._client or client.retired:
             raise EndpointUnavailable('retired_endpoint')
 

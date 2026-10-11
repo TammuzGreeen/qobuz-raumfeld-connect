@@ -17,6 +17,8 @@ COPY raumkernel ./raumkernel
 COPY qobuz/*.py qobuz/*.html ./qobuz/
 COPY shared ./shared
 COPY docker ./docker
+COPY upstream-patches ./upstream-patches
+RUN /app/qobuz/.venv/bin/python docker/apply-upstream-player-patch.py
 COPY LICENSE ARCHITECTURE.md README.md SPEAKER_AVAILABILITY.md VOLUME_REVIEW.md HANDOFF_REVIEW.md CHECKPOINT_STATUS.md DIRECT_DLNA_EXPERIMENT.md UPSTREAM_FIRST_EXPERIMENT.md ./
 ARG UPSTREAM_STATE_DIAGNOSTICS=0
 RUN test "$UPSTREAM_STATE_DIAGNOSTICS" = 0 || { test "$UPSTREAM_STATE_DIAGNOSTICS" = 1 && touch /app/.upstream-state-diagnostics; }

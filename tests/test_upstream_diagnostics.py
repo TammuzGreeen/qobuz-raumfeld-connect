@@ -41,22 +41,20 @@ class DiagnosticTests(unittest.IsolatedAsyncioTestCase):
             msg.srvrRndrSetState.playingState = playing_state
         return msg
 
-    async def test_load_only_then_explicit_play_observed_without_private_fields_or_extra_commands(self):
+    async def test_item_only_preserves_play_without_private_fields_or_extra_commands(self):
         player, api, handler, diagnostics = self.prepare()
         with self.assertLogs('qobuz.upstream_diagnostics', level='INFO') as logs:
             self.assertTrue(await player.play())
-            old_uri = self.uri
             await diagnostics.dispatch(41, self.message(), handler.dispatch_message)
             await asyncio.sleep(0)
-            self.assertEqual(player.state, PlaybackState.STOPPED)
-            self.assertEqual(self.uri, old_uri)
+            self.assertEqual(player.state, PlaybackState.PLAYING)
             await diagnostics.dispatch(41, self.message(2), handler.dispatch_message)
             await asyncio.sleep(0)
         self.assertEqual(player.state, PlaybackState.PLAYING)
         self.assertEqual(self.mutations(), ['SetAVTransportURI', 'Play', 'Stop', 'SetAVTransportURI', 'Play'])
         output = '\n'.join(logs.output)
         self.assertIn('phase=wire_received stage=playing sourceActive=True playing=absent', output)
-        self.assertIn('phase=wire_received stage=stopped sourceActive=True playing=playing', output)
+        self.assertIn('phase=wire_received stage=playing sourceActive=True playing=playing', output)
         self.assertIn('phase=_load_track_locked_finished', output)
         self.assertIn('phase=soap_sending', output)
         self.assertIn('phase=soap_response', output)

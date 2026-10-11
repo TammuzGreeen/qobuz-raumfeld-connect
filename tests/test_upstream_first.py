@@ -403,10 +403,17 @@ class UpstreamRoomTests(unittest.IsolatedAsyncioTestCase):
             await handler.dispatch_message(41, msg)
             await asyncio.wait_for(asyncio.gather(*pending), 5)
             writes = self.mutations()[2:]
-            self.assertNotIn('SetAVTransportURI', writes)
-            self.assertNotIn('Play', writes)
-            self.assertEqual(api.report_streaming_start.await_count, 1)
-            self.assertIsNone(self.backend.pending_track_load)
+            if interrupt == 'different_item':
+                # The latest item inherits the still-admitted play mode; only
+                # the obsolete item must be prevented from starting.
+                self.assertEqual(writes.count('SetAVTransportURI'), 1)
+                self.assertEqual(writes.count('Play'), 1)
+                self.assertEqual(api.report_streaming_start.await_count, 2)
+            else:
+                self.assertNotIn('SetAVTransportURI', writes)
+                self.assertNotIn('Play', writes)
+                self.assertEqual(api.report_streaming_start.await_count, 1)
+            self.assertIsNone(player._pending_remote_state)
             if interrupt == 'failed_stop':
                 self.assertEqual(writes, ['Stop'])
                 self.assertTrue(self.backend._external_playback)
@@ -537,9 +544,8 @@ class UpstreamRoomTests(unittest.IsolatedAsyncioTestCase):
         feedback = []
         seen = set()
         async def hook(action):
-            load = self.backend.pending_load
-            if action == 'GetMediaInfo' and load and load[2].track_id not in seen:
-                track = load[2]
+            track = player.current_track
+            if action == 'GetMediaInfo' and player._requested_playing_state == 2 and track.track_id not in seen:
                 seen.add(track.track_id)
                 feedback.append(handler.dispatch_message(41, message(track.track_id, track.queue_item_id)))
                 await asyncio.sleep(0)
@@ -613,8 +619,8 @@ class UpstreamRoomTests(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(await player._start_playback())
             await asyncio.wait_for(pending[0], 5)
             self.assertEqual(player._current_track.queue_item_id, 2)
-            self.assertEqual(self.mutations(), [])
-            api.report_streaming_start.assert_not_awaited()
+            self.assertEqual(self.mutations(), ['SetAVTransportURI', 'Play'])
+            api.report_streaming_start.assert_awaited_once()
         finally:
             for task in pending:
                 if not task.done():
@@ -638,7 +644,7 @@ class UpstreamRoomTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(pending[0], 5)
             self.assertEqual(self.mutations(), [])
             api.report_streaming_start.assert_not_awaited()
-            self.assertIsNone(self.backend.pending_load)
+            self.assertIsNone(player._pending_remote_state)
         finally:
             for task in pending:
                 if not task.done():
