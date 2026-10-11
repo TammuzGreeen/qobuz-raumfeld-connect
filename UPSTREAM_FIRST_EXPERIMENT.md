@@ -211,6 +211,16 @@ reappear later. Prepared correction image tag:
 `raumfeld-connect:upstream-first-atomic-load-review`; deployment requires a new
 explicit approval.
 
+Prepared correction implementation: `b7c48a5b71ee607300712312d84002988c489a46`.
+Exported archive config digest:
+`sha256:5dacc2777ef4f578913aed0f924987d477fdf8d5aa1b7cc948e49eff40ffba8d`.
+Archive: `/tmp/opencode/direct-dlna-research/upstream-first-atomic-b7c48a5b.tar`,
+outside Git. The built correction image passed **104 Node tests (serial), 115
+Python tests and the isolated upstream-first supervisor smoke**. Saved image
+revision, embedded mode and layers were verified. The existing deployed image
+tag was not overwritten, and no image import/app update or speaker-changing
+commands were performed while preparing this correction.
+
 ```sh
 docker build --build-arg PLAYBACK_PATH=upstream_first \
   --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" \
