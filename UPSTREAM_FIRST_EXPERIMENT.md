@@ -483,6 +483,38 @@ Fresh playback and the Next-button correction require user-driven hardware
 verification; synthetic tests and deployment health do not establish audible
 Next playback or overall hardware acceptance.
 
+### Split-Next hardware result: reverse ordering still fails
+
+On split-Next implementation `78f6f06`, the user confirmed initial audible playback,
+Pause shown and a steady connection. One Next produced no new audible audio;
+Android stayed on the newly selected track and the connection remained steady.
+Categorical records showed the reverse order from the earlier diagnostic attempt:
+state-only PLAYING arrived while the previous item was already PLAYING and returned
+without transport writes. About 24 ms later, the different-current-item update
+arrived with playingState and position absent. The item load sent one acknowledged
+Stop, successfully loaded the new track in STOPPED state, and completed without
+a generation/selection/activation change during loading. No subsequent incoming
+PLAYING, new URI or Play was present in the captured sequence. The narrow
+selection-then-Play deferral was therefore not exercised by this attempt.
+
+Read-only corroboration found upstream idle/no now-playing metadata, renderer
+STOPPED, authentication/session present and the endpoint available. The image
+remained healthy with zero restarts. A private offline replay against this image
+using actual stock-handler protobuf reproduced PLAYING-then-item-update:
+no-op Play of the previous item, then successful load-only Stop with the old URI
+unchanged and no new URI/Play. A subsequent explicit PLAYING snapshot succeeded
+locally; no additional user recovery test or agent-driven transport command was
+issued during this diagnosis.
+
+Manual Next acceptance remains **failed**. The correction and 135-test suite
+covered one split ordering, not both live orderings. Further correction must
+handle partial playing-state/item updates in both orders within the same active
+Qobuz source, while preserving explicit Pause/Stop, newer item intent, source
+takeover/disconnect and fresh-selection-plus-Play requirements. It must not add a
+timed admission window, source-reclaiming retry or blanket auto-Play of selection
+metadata. No further playback code, image update or live configuration change was
+made in response to this result; any new candidate deployment needs approval.
+
 ```sh
 docker build --build-arg PLAYBACK_PATH=upstream_first \
   --build-arg UPSTREAM_STATE_DIAGNOSTICS=1 \
