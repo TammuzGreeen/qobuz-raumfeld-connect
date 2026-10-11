@@ -277,6 +277,16 @@ with feedback waiting. Safe diagnostic messages contain no identifiers/metadata.
 The candidate is **not deployed**; the live image remains the approved atomic-load
 image at `b7c48a5`. A further image-only deployment requires separate approval.
 
+Prepared candidate implementation: `7b5d0a0df19f5f4bcb32fb3b0f8491b693730ac9`.
+Image: `raumfeld-connect:upstream-first-metadata-feedback-review` (amd64).
+Exported archive config digest:
+`sha256:240a149a7500cb4cc7c5e69f356a13a63b246220454aa66651cbfe37cd6d86fc`.
+Archive: `/tmp/opencode/direct-dlna-research/upstream-first-metadata-7b5d0a0d.tar`,
+outside Git. The final built image passed **104 Node tests (serial), 122 Python
+tests and isolated upstream-first supervisor/UI/health/storage/shutdown smoke**.
+Archive revision, embedded mode and layers were verified. No remote image import,
+app update or agent-driven speaker mutation was performed for this candidate.
+
 ```sh
 docker build --build-arg PLAYBACK_PATH=upstream_first \
   --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" \
