@@ -275,7 +275,7 @@ supersession, different queue occurrences, late context preservation, failed URI
 without retry, native takeover during source reads, and new-selection cancellation
 with feedback waiting. Safe diagnostic messages contain no identifiers/metadata.
 After separate explicit user approval, the metadata-feedback image was deployed
-at implementation `7b5d0a0`. Its hardware playback behavior remains unverified.
+at implementation `7b5d0a0`. Partial hardware acceptance is recorded below.
 
 Prepared candidate implementation: `7b5d0a0df19f5f4bcb32fb3b0f8491b693730ac9`.
 Image: `raumfeld-connect:upstream-first-metadata-feedback-review` (amd64).
@@ -297,8 +297,35 @@ Original configuration/credential hashes, optional token-cache state, mounts,
 host networking and all environment values were unchanged. Only upstream-first
 entrypoints were active, with zero restarts, an idle speaker and no selected
 Android session at verification. No agent-driven transport, volume or zone
-mutations were issued. Initial playback, Pause/resume, natural advance and manual
-selection/Play after completion still require user-driven acceptance on this image.
+mutations were issued. Hardware acceptance at deployment time was pending.
+
+### Partial user-driven acceptance on metadata-feedback image
+
+The user confirmed initial audible playback from the beginning, Android showing
+Pause and a steady connection. One Pause/resume cycle stopped and resumed audio
+with the connection steady. The user then queued one song and let the current
+track finish without skipping: the queued song started audibly, Android still
+showed Pause and the connection remained steady. Subsequent manual selection/Play
+started a different song, again with Pause shown and a steady connection. The
+last message did not separately specify that the intervening song had fully
+finished, so an exhausted-queue restart is not independently claimed.
+
+Read-only corroboration found upstream playing with now-playing metadata, an
+authenticated account, available endpoint and selected session. Sanitized logs
+since this image started contained three playing events, one Pause/resume cycle,
+one natural end and automatic advance, six deferred metadata-feedback events and
+three superseded-feedback drops. No failed playback starts were logged. One
+same-authority/player-superseded post-load Seek was rejected before its SOAP write;
+the traceback is recorded as a remaining diagnostic finding, not hidden as an
+error-free run. The container was healthy with zero restarts. Diagnostics sent no
+transport, volume or zone commands.
+
+This is partial acceptance, not overall hardware verification. Small explicit
+volume/readback, physical knobs/no cloud echo, manual Next-button behavior,
+account-visible history/Last.fm, continuous idle Spotify and both handoffs,
+renderer disappearance/rebinding and exhausted-queue restart remain unverified.
+No real reporting HTTP acknowledgement or account-visible scrobble is claimed by
+these playback/state observations.
 
 ```sh
 docker build --build-arg PLAYBACK_PATH=upstream_first \
