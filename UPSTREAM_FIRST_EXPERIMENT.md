@@ -233,7 +233,7 @@ with zero restarts, an idle speaker and no selected Android session at verificat
 No agent-driven transport, volume or zone mutations were issued. Both the
 previous upstream-first image and the separate known-working rollback are retained.
 
-### Post-completion failure and metadata-feedback correction candidate
+### Post-completion failure and approved metadata-feedback correction
 
 On atomic-load implementation `b7c48a5`, the user confirmed Android showed Pause,
 audible audio stopped and resumed, and the connection remained steady. Read-only
@@ -274,8 +274,8 @@ selection and Play with metadata feedback. Other regressions cover genuine Pause
 supersession, different queue occurrences, late context preservation, failed URI
 without retry, native takeover during source reads, and new-selection cancellation
 with feedback waiting. Safe diagnostic messages contain no identifiers/metadata.
-The candidate is **not deployed**; the live image remains the approved atomic-load
-image at `b7c48a5`. A further image-only deployment requires separate approval.
+After separate explicit user approval, the metadata-feedback image was deployed
+at implementation `7b5d0a0`. Its hardware playback behavior remains unverified.
 
 Prepared candidate implementation: `7b5d0a0df19f5f4bcb32fb3b0f8491b693730ac9`.
 Image: `raumfeld-connect:upstream-first-metadata-feedback-review` (amd64).
@@ -284,13 +284,26 @@ Exported archive config digest:
 Archive: `/tmp/opencode/direct-dlna-research/upstream-first-metadata-7b5d0a0d.tar`,
 outside Git. The final built image passed **104 Node tests (serial), 122 Python
 tests and isolated upstream-first supervisor/UI/health/storage/shutdown smoke**.
-Archive revision, embedded mode and layers were verified. No remote image import,
-app update or agent-driven speaker mutation was performed for this candidate.
+Archive revision, embedded mode and layers were verified. During candidate
+preparation, no remote image import, app update or agent-driven speaker mutation
+was performed.
+
+Subsequent approved deployment changed only the app image, with exact archive
+digest/layers/architecture/revision/mode verified on import. Private before-state
+and the immediately previous atomic-load image archive were retained; the separate
+known-working rollback image is also available. Post-update health/authentication,
+one-room/CD discovery, room name/UUID/port and physical membership checks passed.
+Original configuration/credential hashes, optional token-cache state, mounts,
+host networking and all environment values were unchanged. Only upstream-first
+entrypoints were active, with zero restarts, an idle speaker and no selected
+Android session at verification. No agent-driven transport, volume or zone
+mutations were issued. Initial playback, Pause/resume, natural advance and manual
+selection/Play after completion still require user-driven acceptance on this image.
 
 ```sh
 docker build --build-arg PLAYBACK_PATH=upstream_first \
   --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" \
-  -t raumfeld-connect:upstream-first-atomic-load-review .
+  -t raumfeld-connect:upstream-first-metadata-feedback-review .
 ```
 
 `docker-compose.upstream-first.yml` is an image-only override with
