@@ -18,6 +18,8 @@ COPY qobuz/*.py qobuz/*.html ./qobuz/
 COPY shared ./shared
 COPY docker ./docker
 COPY LICENSE ARCHITECTURE.md README.md SPEAKER_AVAILABILITY.md VOLUME_REVIEW.md HANDOFF_REVIEW.md CHECKPOINT_STATUS.md DIRECT_DLNA_EXPERIMENT.md UPSTREAM_FIRST_EXPERIMENT.md ./
+ARG UPSTREAM_STATE_DIAGNOSTICS=0
+RUN test "$UPSTREAM_STATE_DIAGNOSTICS" = 0 || { test "$UPSTREAM_STATE_DIAGNOSTICS" = 1 && touch /app/.upstream-state-diagnostics; }
 RUN /app/qobuz/.venv/bin/python -c "from qobuz.receiver import Receiver; from qobuz.service import Service" \
     && /app/qobuz/.venv/bin/python -c "from qobuz.upstream_app import OneRoomApplication" \
     && node -e "const {Raumkernel}=require('node-raumkernel'); new Raumkernel()" \

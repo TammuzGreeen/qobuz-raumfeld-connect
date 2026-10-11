@@ -362,6 +362,42 @@ transport. No live configuration/image changes or speaker mutations were made
 during diagnosis. Manual Next remains failed; reporting, source handoffs and
 remaining hardware acceptance are still unverified.
 
+### Approved command-state diagnostic image preparation
+
+After the silent Next, the user pressed Pause once: Android changed to Play and
+the connection stayed steady. Pressing Play once without selecting another track
+or reconnecting then started the already-selected song audibly, showed Pause and
+kept the connection steady. Read-only upstream status confirmed playing with
+metadata. This confirms explicit Play recovery, not a working Next command.
+
+The user requested a diagnostic image and then explicitly approved its deployment
+as soon as preparation checks pass. This image changes logging only: stock
+command/session/queue/player and existing safety/feedback behavior remain intact.
+It does not turn selection-only updates into playback or add retries. Diagnostics
+are opt-in at build time with `UPSTREAM_STATE_DIAGNOSTICS=1`, represented by an
+image-only `/app/.upstream-state-diagnostics` marker. Default builds remain off;
+existing environment keys/values and app configuration need not change.
+
+Diagnostic INFO records contain fixed categories/booleans for incoming SET_STATE,
+target same/different/absent comparisons, position absent/zero/positive, player
+entry/completion, generation-change comparisons, source active state, outgoing
+state-send results and SOAP intent/send/response. Local sequential diagnostic
+event numbers correlate handler tasks; they are not cloud/session/track IDs.
+SOAP responses are logged before post-response safety checks so an acknowledgement
+followed by rejection is distinguishable from rejection before a transport write.
+Outbound WebSocket send success is not a cloud/account reporting acknowledgement.
+No protobuf dump, metadata, IDs, URLs, tokens or precise positions are logged.
+No additional network calls or awaits beyond forwarding the original operations
+are introduced by observers. Stock websocket setup remains inherited unchanged.
+
+Source validation passed **127 Python tests**, including private-field sentinel
+checks, real stock load-only/explicit-Play replay, unchanged SOAP mutation counts,
+failed-URI/no retry, acknowledged URI followed by deactivation/no Play, preserved
+WebSocket return values/task cancellation, and diagnostic-enabled real
+Node-companion/stock-Speaker/audio-proxy composition. Final artifact/deployment
+checks are recorded below; the live metadata-feedback image is unchanged while
+this diagnostic candidate is being prepared.
+
 ```sh
 docker build --build-arg PLAYBACK_PATH=upstream_first \
   --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" \

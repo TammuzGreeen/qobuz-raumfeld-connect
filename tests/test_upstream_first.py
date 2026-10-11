@@ -697,7 +697,7 @@ class UpstreamRoomTests(unittest.IsolatedAsyncioTestCase):
             ready = json.loads(await asyncio.wait_for(asyncio.to_thread(child.stdout.readline), 5))
             base = f'http://127.0.0.1:{ready["port"]}'
             room = {'id': 'synthetic-room', 'name': 'Example Qobuz', 'port': free_port()}
-            install_runtime(room, 's' * 32, companion_base=base)
+            install_runtime(room, 's' * 32, companion_base=base, diagnostics=True)
             api = MagicMock()
             api.report_streaming_start = AsyncMock(return_value=True)
             api.report_streaming_end = AsyncMock(return_value=True)
@@ -707,6 +707,7 @@ class UpstreamRoomTests(unittest.IsolatedAsyncioTestCase):
             with patch.object(DiscoveryService, '_register_mdns', new=AsyncMock()):
                 self.assertTrue(await speaker.start())
             self.assertIs(type(speaker._player), QobuzPlayer)
+            self.assertIsNotNone(speaker._backend.diagnostics)
             self.assertIsNone(speaker._backend._client)
             tokens = speaker._discovery._parse_connect_request({
                 'session_id': '00000000-0000-0000-0000-000000000001',

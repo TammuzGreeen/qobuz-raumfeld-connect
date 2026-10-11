@@ -17,6 +17,7 @@ from qobuz_proxy.backends.dlna.client import DLNAClient, SoapResult
 from qobuz_proxy.backends.types import PlaybackState
 
 from .endpoint_catalog import Endpoint
+from .upstream_diagnostics import trace_soap
 
 operation = ContextVar('upstream_room_operation', default=None)
 committed_load = ContextVar('upstream_committed_load', default=None)
@@ -120,6 +121,7 @@ class RoomDLNAClient(DLNAClient):
             if s.findtext('d:serviceType', '', ns) == 'urn:schemas-upnp-org:service:RenderingControl:1'), None)
         return self._parse_device_description(body.decode('utf8'), 'http://' + source.netloc)
 
+    @trace_soap
     async def _soap_action_detailed(self, url, service, action, args, max_retries=None):
         mutating = not action.startswith('Get')
         if mutating:
@@ -132,7 +134,15 @@ class RoomDLNAClient(DLNAClient):
                 # authority even if a newer same-session snapshot queues up.
                 # Selection, activation/disconnect and native takeover still win.
                 committed_load.set(operation.get())
+            diagnostics = getattr(self.backend, 'diagnostics', None)
+            if diagnostics:
+                diagnostics.emit('soap_sending', action=action)
         result = await super()._soap_action_detailed(url, service, action, args, max_retries=1)
+        if mutating:
+            diagnostics = getattr(self.backend, 'diagnostics', None)
+            if diagnostics:
+                diagnostics.emit('soap_response', action=action, acknowledged=result.success,
+                                 unsupportedSeek=action == 'Seek' and result.error_code == 710)
         if self.retired or self.backend._client is not self or self.epoch != self.backend.epoch:
             if mutating:
                 raise EndpointUnavailable('retired_endpoint')

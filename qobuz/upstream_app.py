@@ -23,6 +23,7 @@ import qobuz_proxy.app as app_module
 import qobuz_proxy.speaker as speaker_module
 
 from .upstream_backend import CompanionClient, DeferredRoomBackend, operation
+from .upstream_diagnostics import StateDiagnostics
 
 
 def load_runtime(data_dir, lan_address):
@@ -58,7 +59,7 @@ def load_runtime(data_dir, lan_address):
     return room, config, runtime_dir
 
 
-def install_runtime(room, token, companion_base='http://127.0.0.1:8787'):
+def install_runtime(room, token, companion_base='http://127.0.0.1:8787', diagnostics=False):
     if not isinstance(token, str) or len(token) < 32:
         raise ValueError('invalid_companion_token')
     active = {}
@@ -70,6 +71,8 @@ def install_runtime(room, token, companion_base='http://127.0.0.1:8787'):
                 raise ValueError('only_configured_room_supported')
             backend = DeferredRoomBackend(CompanionClient(token, companion_base), room['id'], room['name'])
             active['backend'] = backend
+            active['diagnostics'] = StateDiagnostics(backend) if diagnostics else None
+            backend.diagnostics = active['diagnostics']
             await backend.connect()
             return backend
 
@@ -78,6 +81,11 @@ def install_runtime(room, token, companion_base='http://127.0.0.1:8787'):
             return self.config.server.bind_address
 
     class GenerationWsManager(WsManager):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            if active.get('diagnostics'):
+                active['diagnostics'].bind_ws(self)
+
         def register_handler(self, msg_type, handler):
             def dispatch(mt, message):
                 backend = active['backend']
@@ -85,7 +93,8 @@ def install_runtime(room, token, companion_base='http://127.0.0.1:8787'):
                 try:
                     # Stock handler creates its own task. ContextVars preserve
                     # the generation captured here across that task's awaits.
-                    return handler(mt, message)
+                    observer = active.get('diagnostics')
+                    return observer.dispatch(mt, message, handler) if observer else handler(mt, message)
                 finally:
                     operation.reset(context)
             return super().register_handler(msg_type, dispatch)
@@ -107,6 +116,8 @@ def install_runtime(room, token, companion_base='http://127.0.0.1:8787'):
                 self._backend.bind_authority(lambda: (
                     self._playback_handler._generation, self._playback_handler._active
                 ) if self._playback_handler else None)
+                if self._backend.diagnostics:
+                    self._backend.diagnostics.bind_player(self._player)
             return started
 
         async def stop(self):
@@ -146,7 +157,7 @@ async def main():
     runtime_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     token_storage.CACHE_DIR = runtime_dir
     token_storage.CACHE_FILE = runtime_dir / 'credentials.json'
-    install_runtime(room, os.environ['API_TOKEN'])
+    install_runtime(room, os.environ['API_TOKEN'], diagnostics=Path('/app/.upstream-state-diagnostics').is_file())
     logging.basicConfig(level=logging.INFO)
     # Web UI is loopback-only; per-room discovery/audio use the preserved LAN
     # interface. Upstream owns auth, Android connection/session, queue and reports.
