@@ -459,6 +459,16 @@ and stock connection tests remain intact. This correction is **not deployed**;
 only diagnostic implementation `69fd394` is currently approved/live. Deployment
 of the new playback correction requires separate user approval.
 
+Prepared correction implementation: `78f6f06c77b0b99fe89aed55c8bd890f8ba2f349`.
+Image: `raumfeld-connect:upstream-first-split-next-review` (amd64), with categorical
+diagnostics retained. Archive config digest:
+`sha256:99ed19466895ef42ea2919f627ea4a07f1ed8837d280c05df1fd7c7e9d6bfec1`.
+Archive: `/tmp/opencode/direct-dlna-research/upstream-first-split-next-78f6f06c.tar`,
+outside Git. Final image validation passed **104 Node tests (serial), 135 Python
+tests and isolated upstream-first supervisor/UI/health/storage/shutdown smoke**.
+Image revision/mode/diagnostic label and archive layers were verified. No remote
+import, app update or agent-driven speaker mutation occurred for this correction.
+
 ```sh
 docker build --build-arg PLAYBACK_PATH=upstream_first \
   --build-arg UPSTREAM_STATE_DIAGNOSTICS=1 \
