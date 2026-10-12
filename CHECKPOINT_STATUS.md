@@ -3,7 +3,9 @@
 **Working preview; seeking outstanding; not complete hardware acceptance.**
 
 Later seeking candidate work is described in [SEEK_REVIEW.md](SEEK_REVIEW.md).
-It does not change this published checkpoint's image or hardware evidence.
+Candidate `d58a5cd` is now separately approved/deployed, with hardware seeking
+acceptance pending. It does not change this published checkpoint's preserved
+image, immutable tag or hardware evidence.
 
 Publication: `upstream-first-preview-2026-10-12` on
 `experiment/upstream-first-one-room`, not main. The tag resolves to the publication

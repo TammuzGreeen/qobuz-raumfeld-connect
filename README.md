@@ -5,8 +5,10 @@ This branch contains a **working hardware-tested preview with seeking outstandin
 not a fully accepted release. The running deployment is unchanged by publication.
 
 **Later development:** [seeking investigation/candidate](SEEK_REVIEW.md) is separate
-from the published preview. Candidate changes have not been deployed or hardware-
-accepted; build the tagged/pinned sources below to preserve the tested preview.
+from the published preview. Candidate `d58a5cd` has been separately approved and
+deployed, but hardware seeking acceptance is pending. Image/acceptance details
+below identify the preserved working preview, not this newer experimental deployment.
+Build the tagged/pinned sources below to preserve the tested preview.
 
 ## Tested checkpoint
 

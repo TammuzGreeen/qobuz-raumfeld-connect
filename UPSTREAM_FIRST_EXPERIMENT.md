@@ -835,3 +835,22 @@ not deployed, not registry-published and not hardware-verified. The working
 `560ee29` image and immutable `upstream-first-preview-2026-10-12` publication tag
 are unchanged. Only read-only speaker diagnostics were performed; no mutating
 speaker controls. Separate approval is required for candidate deployment/testing.
+
+## Approved seeking-candidate deployment
+
+User separately approved the controlled seeking-candidate deployment. Implementation
+`d58a5cd01b2e1c5cde46c4267eccaa71ad5b096b` is now deployed as
+`raumfeld-connect:upstream-first-seek-review`; imported ID/config digest is
+`sha256:8855faf4fd553e9ee71124f32ac47154d52d3c8a1958ec8cf5295c9cdcc4081a`.
+Private archive checksum matched and working preview `560ee29` was archived as
+rollback with complete before-state. The app update changed only image/pull policy,
+was executed once and was not retried.
+
+Verified healthy/authenticated, zero restarts, original config/credential hashes
+and optional cache state preserved, unchanged environment/mounts/host networking,
+same room identity/configuration/membership/endpoint, unrelated running containers
+preserved, diagnostics enabled, both installed backport hashes exact and upstream
+launcher present without legacy receiver/service entrypoints. Zero startup SOAP
+transmissions and zero agent speaker controls during deployment. The working
+preview prerelease/tag is unchanged. `hardwareVerified: false`; initial audible
+playback and a single Android scrub on this candidate await user observation.

@@ -1,9 +1,10 @@
 # Seeking investigation and undeployed candidate
 
-The published `upstream-first-preview-2026-10-12` tag and running implementation
-`560ee29` remain unchanged. This document describes later candidate development,
-not a seeking fix already accepted on hardware. No transport mutation or alternative
-Seek mode has been tested against the real renderer during this investigation.
+The published `upstream-first-preview-2026-10-12` tag and preserved working image
+`560ee29` remain unchanged. After separate user approval, candidate `d58a5cd` is now
+deployed; hardware seeking acceptance is pending. This is not a seeking fix already
+accepted on hardware. No agent-driven alternative Seek has been sent to the real
+renderer. See the deployment verification below.
 
 ## Findings
 
@@ -93,7 +94,7 @@ If ABS_TIME still receives 710 or does not move the audible position, stop and r
 failure; do not probe fallback modes or retry uncertain mutations. Spotify → Qobuz
 → Spotify handoff follows seeking acceptance; scrobbling remains deferred.
 
-## Prepared image — not deployed
+## Prepared image — pre-deployment record
 
 - Candidate implementation: `d58a5cd01b2e1c5cde46c4267eccaa71ad5b096b`.
 - Local amd64 image: `raumfeld-connect:upstream-first-seek-review`.
@@ -115,3 +116,27 @@ speaker controls occurred during investigation; only bounded read-only descripto
 SCPD/metadata/action-list inspection and isolated synthetic playback were used.
 The next step requires separate deployment approval, not a claim that ABS_TIME has
 already solved the hardware failure.
+
+## Approved deployment — hardware acceptance pending
+
+User separately approved deployment for a controlled seek test. Candidate
+`d58a5cd01b2e1c5cde46c4267eccaa71ad5b096b` is deployed as
+`raumfeld-connect:upstream-first-seek-review`. Imported image ID/config digest is
+`sha256:8855faf4fd553e9ee71124f32ac47154d52d3c8a1958ec8cf5295c9cdcc4081a`
+(distinct from the local OCI index above). Private archive checksum matched.
+
+Retained a fresh private before-state, effective Compose and rollback archive of
+the working preview, then performed one image/pull-policy-only app update without
+retry. Verified healthy/authenticated, zero restarts, unchanged environment mapping,
+host networking, mounts, original config/credentials and optional cache state,
+same room configuration/identity/membership and available endpoint, unrelated
+containers unchanged, diagnostics enabled, exact installed backport byte hashes
+and actual upstream launcher argv. No legacy receiver/service entrypoints.
+Startup diagnostics showed zero SOAP transmissions; no agent speaker controls
+were sent during deployment.
+
+`hardwareVerified: false`. First establish audible playback from the beginning,
+then perform one Android scrub and inspect the single ABS_TIME Seek/response and
+actual audible position. Do not infer seek success from health or SOAP alone.
+The published preview remains the known-working rollback; its control acceptance
+does not automatically transfer to this candidate. The prerelease/tag is untouched.
