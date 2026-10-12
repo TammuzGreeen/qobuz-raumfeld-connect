@@ -662,3 +662,35 @@ diagnostics contained zero SOAP transmissions.
 playback and Next remain pending user observation on this image, followed by
 Pause/resume, natural advancement, Android volume and physical knob feedback.
 Reporting/scrobbling and uninterrupted Spotify remain separate outstanding tests.
+
+## First partial-state hardware Next result
+
+On deployed implementation `560ee29`, user reported audio, connection and a
+"pause check" before Next and again after Next. This establishes user-observed
+audible playback and a steady connection through the manual Next attempt.
+The Pause control check is recorded as reported, not as completed Pause/resume:
+the captured sequence contains no explicit PAUSED update or SOAP Pause, and the
+read-only status remained playing. Explicit audible stop/resume confirmation is
+still requested.
+
+Categorical diagnostics show a different-item update with playingState/position
+absent (local event 9), followed by state-only PLAYING (event 10) during the load.
+The selected-item transaction sent and acknowledged one Stop, one new URI and
+one Play, completed in playing state, and the state-only Play then completed
+without an extra transport write. Queue-only feedback during loading did not
+supersede it. Selection/activation authority stayed unchanged. This hardware
+attempt exercises selection → Play, not the reversed live order; reverse-order
+coverage on this candidate remains synthetic. No metadata, device identities,
+URLs, cloud IDs or private captures are committed.
+
+Read-only check confirmed healthy/authenticated, zero restarts. An initial-event
+Seek received definite 710 and was not acknowledged; this is separate from the
+successful Next transaction and does not establish a fully error-free session.
+State-report send completion is not cloud playback-report acknowledgement or an
+account-visible scrobble. No speaker commands were sent by the agent.
+
+Initial audible playback and this manual Next attempt pass. Explicit Pause/resume,
+natural advancement, Android volume and physical knob feedback on this same image
+remain pending; overall `hardwareVerified: false`. Reporting/scrobbling,
+uninterrupted Spotify, handoffs and hardware rebinding remain separate outstanding
+acceptance tests.
