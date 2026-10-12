@@ -17,13 +17,20 @@ COPY raumkernel ./raumkernel
 COPY qobuz/*.py qobuz/*.html ./qobuz/
 COPY shared ./shared
 COPY docker ./docker
-COPY LICENSE ARCHITECTURE.md README.md ./
+COPY upstream-patches ./upstream-patches
+RUN /app/qobuz/.venv/bin/python docker/apply-upstream-player-patch.py
+COPY LICENSE ARCHITECTURE.md README.md SPEAKER_AVAILABILITY.md VOLUME_REVIEW.md HANDOFF_REVIEW.md CHECKPOINT_STATUS.md DIRECT_DLNA_EXPERIMENT.md UPSTREAM_FIRST_EXPERIMENT.md ./
+ARG UPSTREAM_STATE_DIAGNOSTICS=0
+RUN test "$UPSTREAM_STATE_DIAGNOSTICS" = 0 || { test "$UPSTREAM_STATE_DIAGNOSTICS" = 1 && touch /app/.upstream-state-diagnostics; }
 RUN /app/qobuz/.venv/bin/python -c "from qobuz.receiver import Receiver; from qobuz.service import Service" \
+    && /app/qobuz/.venv/bin/python -c "from qobuz.upstream_app import OneRoomApplication" \
     && node -e "const {Raumkernel}=require('node-raumkernel'); new Raumkernel()" \
     && useradd --uid 10001 --create-home app \
     && mkdir -p /data && chown 10001:10001 /data
 USER 10001:10001
 ENV PYTHONUNBUFFERED=1 API_BIND=127.0.0.1 API_PORT=8787
+ARG PLAYBACK_PATH=guarded
+ENV PLAYBACK_PATH=${PLAYBACK_PATH}
 LABEL org.opencontainers.image.source="https://github.com/TammuzGreeen/qobuz-raumfeld-connect" \
       org.opencontainers.image.version="0.2.0" \
       org.opencontainers.image.licenses="MIT"

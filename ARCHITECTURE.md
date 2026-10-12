@@ -1,5 +1,11 @@
 # Architecture
 
+**Historical guarded-path architecture below.** The current upstream-first working
+preview uses upstream sessions/queue/player/reporting/audio proxy/DLNA, with Node
+for discovery and explicit on-demand renderer creation. See the
+[current README](README.md#architecture) and [checkpoint status](CHECKPOINT_STATUS.md).
+The lease/replay admission design below is not used by the preview launcher.
+
 ```text
 Qobuz app ── mDNS / Connect HTTP ──> per-room upstream DiscoveryService
                                             │ explicit selection
@@ -35,9 +41,17 @@ tests catch upstream signature changes before any upgrade.
 Room UDNs are identity; physical and dynamic virtual renderers are distinct.
 Full topology snapshots replace prior room membership. Event subscriptions plus
 periodic read-only observations track transport and volume, with bounded waits.
+Reads specify UPnP instance 0. Physical Raumfeld renderers can omit GetMediaInfo
+and omit URI fields from GetPositionInfo. Only an explicit ENOACTION response
+enables a read-only QueryStateVariable(LastChange) fallback. Its new snapshot must
+contain exactly one AVTransportURI for instance 0; missing/failed reads never
+renew freshness. Cached source/volume events cannot substitute for this query.
 Renderer disappearance, host loss, source changes and stale snapshots invalidate
 ownership. Generation checks discard reads that race newer events or reconnects.
 Private URI evidence remains in Node memory and is omitted from the state API.
+Observation diagnostics expose only action/error codes and timestamps, never raw
+SOAP bodies or exception messages. Setup separately reports receiver bind/start
+failures and checks that LAN_ADDRESS is a locally assigned, non-loopback address.
 Spotify is recognized from `spotify:` / `spotifyconnect` transport URI markers,
 following ha-raumkernel's source detection, including physical renderer evidence.
 
