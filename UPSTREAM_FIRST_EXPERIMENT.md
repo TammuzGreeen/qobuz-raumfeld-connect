@@ -694,3 +694,14 @@ natural advancement, Android volume and physical knob feedback on this same imag
 remain pending; overall `hardwareVerified: false`. Reporting/scrobbling,
 uninterrupted Spotify, handoffs and hardware rebinding remain separate outstanding
 acceptance tests.
+
+## Partial-state explicit Pause/resume confirmation
+
+User subsequently confirmed pressing Play and Pause works with a steady connection
+on the same deployed implementation `560ee29`. Explicit Pause/resume is therefore
+recorded as user-observed passed, superseding the pending confirmation above.
+Initial audible playback and manual Next remain passed for the observed attempt.
+Natural advancement, Android volume and physical knob feedback still need same-image
+acceptance. Overall `hardwareVerified: false`; reporting/scrobbling, uninterrupted
+Spotify, handoffs and hardware rebinding remain separate outstanding tests. This
+confirmation does not claim a new diagnostic capture or cloud acknowledgement.
