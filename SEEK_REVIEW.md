@@ -2,8 +2,9 @@
 
 The published `upstream-first-preview-2026-10-12` tag and preserved working image
 `560ee29` remain unchanged. After separate user approval, candidate `d58a5cd` is now
-deployed. Playing-track scrubbing has passed a user hardware test; paused scrubbing,
-fresh nonzero starts and broader same-image acceptance remain pending. No agent-driven
+deployed. Playing-track scrubbing has passed a user hardware test; paused scrubbing
+caused unintended audible resume and is not accepted. Fresh nonzero starts and
+broader same-image acceptance remain pending. No agent-driven
 alternative Seek has been sent to the real renderer. See deployment/test evidence below.
 
 ## Findings
@@ -160,3 +161,34 @@ Paused scrub/resume and fresh nonzero start still require user confirmation, as 
 affected controls/progression on this candidate. Spotify → Qobuz → Spotify handoff
 remains next after seeking acceptance; scrobbling stays deferred. Overall
 `hardwareVerified: false`; the published preview/tag and rollback are unchanged.
+
+## Paused scrub observation — position works, silent pause not preserved
+
+User paused, selected another point and heard playback start immediately without
+pressing Play. A later explicit Play did not disrupt audio; connection stayed steady.
+This is not acceptance of remaining silent until an explicit resume.
+
+Diagnostics confirm PAUSED was requested and one Pause was acknowledged (local
+event 76), leaving the player paused. The scrub (event 78) contained a positive
+position and no playing-state field. Only one acknowledged ABS_TIME Seek was sent;
+no Play or extra Pause was transmitted during that update, and selection/activation
+authority stayed unchanged. The player's subsequent pause method was a no-op
+because its cached state still said paused. The state-only PLAYING and SOAP Play
+arrived later (event 80), corresponding to the user's explicit button press.
+
+Together with the user's audible observation this points to renderer auto-resume
+as a side effect of an accepted Seek, not an app-requested PLAYING delta or a
+generation/source-check failure. No pre-button physical transport-state read was
+captured, so the exact device-side transition is not independently measured.
+
+An isolated replay with a fake renderer that resumes on Seek reproduced physical
+PLAYING while the player stayed PAUSED, with Seek as the only transmitted mutation,
+under both stock DLNA and the room integration. Existing paused-scrub tests assumed
+Seek preserves renderer pause and therefore missed this device behavior.
+
+Paused-scrub silence is a known failed acceptance item on `d58a5cd`; playing scrub
+and steady connection still pass for the recorded attempts. No new playback code,
+deployment, agent-driven transport mutation, fallback Pause/Stop or retry has been
+introduced for this observation. Preserve the working preview rollback. Confirm
+the desired paused-scrub behavior before choosing deferred seek versus deliberate
+paused-state restoration; defer handoff acceptance while this is unresolved.

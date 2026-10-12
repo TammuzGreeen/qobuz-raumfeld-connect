@@ -4,7 +4,8 @@
 
 Later seeking candidate work is described in [SEEK_REVIEW.md](SEEK_REVIEW.md).
 Candidate `d58a5cd` is now separately approved/deployed; playing-track scrub passes,
-with other seek variants and broader hardware acceptance pending. It does not change this checkpoint's preserved
+but paused scrub caused unintended audible resume and is not accepted. Other seek
+variants and broader hardware acceptance remain pending. It does not change this checkpoint's preserved
 image, immutable tag or hardware evidence.
 
 Publication: `upstream-first-preview-2026-10-12` on

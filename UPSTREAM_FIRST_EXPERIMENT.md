@@ -870,3 +870,24 @@ observed playing scrub, not merely the earlier mode hypothesis. Paused scrub/res
 fresh nonzero start and affected controls/progression still need acceptance on this
 candidate. Full `hardwareVerified: false`; source handoff testing follows seeking,
 scrobbling remains deferred, and the published working-preview tag is unchanged.
+
+## Paused seeking observation on current candidate
+
+User reported Pause → selecting another point immediately started audible playback
+without pressing Play; later Play did not harm audio and connection stayed steady.
+Paused-scrub silence is not accepted. Live categorical sequence: acknowledged Pause
+and player paused (event 76), position-only positive update (event 78), one
+acknowledged ABS_TIME Seek, no Play during the scrub, player still internally
+paused, then the user's later state-only PLAYING/acknowledged Play (event 80).
+Source/activation authority did not change. This points to renderer Seek-induced
+resume, rather than app PLAYING intent or a wrapper-generated Play. Exact physical
+state before the later button press was not independently read.
+
+A network-disabled replay whose renderer resumes on accepted Seek reproduced
+physical PLAYING / player PAUSED with Seek as the sole mutation for both stock
+DLNA and room backend. Existing paused-scrub tests did not model that side effect.
+No new playback implementation/deployment or agent mutating control was performed.
+The playing-scrub pass stands; full `hardwareVerified: false`, paused silence is
+failed/unresolved, and desired paused-scrub behavior needs confirmation before
+correction selection. Working-preview tag/rollback remain preserved; handoff tests
+are deferred while this seeking behavior is unresolved.
