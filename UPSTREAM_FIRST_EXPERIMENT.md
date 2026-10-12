@@ -745,3 +745,32 @@ Android volume and physical knob feedback, with steady connection as reported.
 Overall `hardwareVerified: false`; reporting/scrobbling, uninterrupted Spotify,
 source handoffs, exhausted-queue restart and hardware disappearance/rebinding
 remain outstanding. Reverse-order Next coverage on this image remains synthetic.
+
+## Next priority: mid-track playback / seeking
+
+User deferred scrobbling and requested mid-track playback be fixed next, followed
+by Spotify → Qobuz → Spotify handoff acceptance. No handoff test or new deployment
+has been performed as part of this request.
+
+Read-only current-image diagnostics captured a state-only positive-position delta
+while playing (local event 318). Two Seek transmissions followed, both rejected
+with definite 710 (`unsupportedSeek=True`); upstream seek wrappers nevertheless
+finished true. Source/activation authority did not change and the container
+remained healthy with zero restarts. Pinned upstream's DLNA client uses REL_TIME.
+The partial-state backport preserves playing mode, so the stock apply sequence
+seeks once for position then again through its already-playing `_play_locked`
+path. This redundant mutation must be addressed rather than used as a retry.
+
+Read-only virtual-renderer SCPD advertises ABS_TIME, REL_TIME and TRACK_NR. The
+PyRaumfeld reference implementation defaults to ABS_TIME. These are investigation
+leads, not evidence ABS_TIME succeeds with the current upstream audio proxy.
+No alternative Seek, transport mutation, fallback, regroup or source replacement
+was attempted. Private captures and SCPD remain outside Git.
+
+Correction planning must cover starting at a nonzero position, scrubbing while
+playing and paused, explicit failure propagation without optimistic position
+success, one intentional Seek per update, newer selection/Pause and source
+takeover. Preserve upstream player/queue/reporting and all existing control passes;
+no arbitrary pairing window or retry on uncertain mutations. A new candidate and
+speaker-changing validation still require separate approval. Overall
+`hardwareVerified: false`; seeking is now a known failed acceptance item.
