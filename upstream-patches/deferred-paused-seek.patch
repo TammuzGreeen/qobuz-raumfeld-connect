@@ -27,19 +27,20 @@ diff --git a/qobuz_proxy/playback/player.py b/qobuz_proxy/playback/player.py
              if await self.backend.seek(clamped_position) is False:
                  # Legacy backends return None; an explicit failure must not
                  # advance the clock or be turned into a successful position.
-@@ -432,7 +444,12 @@
+@@ -432,8 +444,13 @@
          """Revoke queued/in-flight playback intents without interrupting current audio."""
          self._requested_playing_state = None
          self._pending_remote_state = None
 +        self._pending_paused_position_ms = None
          self._next_generation()
+         self._clear_skip_pending()
 +
 +    def clear_pending_paused_seek(self) -> None:
 +        """Discard desired offset when its renderer endpoint is retired."""
 +        self._pending_paused_position_ms = None
-         self._clear_skip_pending()
  
      def set_playback_permission_check(self, check: Callable[[], Awaitable[bool]]) -> None:
+         """Check renderer ownership before applying a remote session snapshot."""
 @@ -694,6 +711,7 @@
                      # continuous (e.g. a queue reorder reassigned the id), so it
                      # stays one listen — splitting it would double-scrobble.
