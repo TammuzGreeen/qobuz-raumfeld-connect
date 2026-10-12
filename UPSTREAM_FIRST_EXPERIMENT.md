@@ -705,3 +705,14 @@ Natural advancement, Android volume and physical knob feedback still need same-i
 acceptance. Overall `hardwareVerified: false`; reporting/scrobbling, uninterrupted
 Spotify, handoffs and hardware rebinding remain separate outstanding tests. This
 confirmation does not claim a new diagnostic capture or cloud acknowledgement.
+
+## Partial-state natural advancement confirmation
+
+Following the request to let a queued track finish without pressing Next, user
+confirmed the queued track started normally, was audible, the connection stayed
+steady and Android showed the Pause symbol on deployed implementation `560ee29`.
+Natural queued advancement is recorded as user-observed passed on this same image.
+Android volume and physical knob feedback remain pending. Overall
+`hardwareVerified: false`; reporting/scrobbling, uninterrupted Spotify, handoffs,
+exhausted-queue restart and hardware rebinding remain separate outstanding tests.
+This confirmation does not establish new diagnostic or cloud-report acknowledgements.
