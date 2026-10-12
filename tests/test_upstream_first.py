@@ -47,6 +47,8 @@ class UpstreamRoomTests(unittest.IsolatedAsyncioTestCase):
         self.volume = 4
         self.failure = None
         self.failure_code = 501
+        self.seek_modes = ['ABS_TIME', 'REL_TIME', 'TRACK_NR']
+        self.seek_units = []
         self.hook = None
         self.fragment = False
         self.udn = 'synthetic-zone'
@@ -85,6 +87,8 @@ class UpstreamRoomTests(unittest.IsolatedAsyncioTestCase):
             self.commands.append(action)
             if self.hook:
                 await self.hook(action)
+            if action == 'Seek':
+                self.seek_units.append(next(e.text for e in ET.fromstring(body).iter() if e.tag.endswith('Unit')))
             if action == self.failure:
                 return web.Response(status=500, text='<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">'
                     '<s:Body><s:Fault><detail><UPnPError xmlns="urn:schemas-upnp-org:control-1-0">'
@@ -111,9 +115,17 @@ class UpstreamRoomTests(unittest.IsolatedAsyncioTestCase):
         async def scpd(request):
             args = ''.join(f'<argument><name>{name}</name><direction>in</direction></argument>'
                           for name in ('InstanceID', 'Channel', 'DesiredVolume'))
+            seek_args = ''.join(f'<argument><name>{name}</name><direction>in</direction>'
+                f'<relatedStateVariable>{variable}</relatedStateVariable></argument>'
+                for name, variable in (('InstanceID', 'A_ARG_TYPE_InstanceID'),
+                                       ('Unit', 'A_ARG_TYPE_SeekMode'), ('Target', 'A_ARG_TYPE_SeekTarget')))
+            modes = ''.join(f'<allowedValue>{mode}</allowedValue>' for mode in self.seek_modes)
             return web.Response(text='<scpd xmlns="urn:schemas-upnp-org:service-1-0">'
                 f'<actionList><action><name>SetVolume</name><argumentList>{args}</argumentList>'
-                '</action></actionList></scpd>', content_type='text/xml')
+                f'</action><action><name>Seek</name><argumentList>{seek_args}</argumentList></action>'
+                '</actionList><serviceStateTable><stateVariable><name>A_ARG_TYPE_SeekMode</name>'
+                f'<allowedValueList>{modes}</allowedValueList></stateVariable></serviceStateTable></scpd>',
+                content_type='text/xml')
         app = web.Application()
         app.router.add_get('/device.xml', description)
         app.router.add_get('/changed.xml', description)
@@ -223,13 +235,27 @@ class UpstreamRoomTests(unittest.IsolatedAsyncioTestCase):
     async def test_definite_unsupported_seek_preserves_upstream_behavior_without_retry(self):
         await self.start()
         self.failure, self.failure_code = 'Seek', 710
-        await self.backend.seek(3000)
+        self.assertFalse(await self.backend.seek(3000))
         self.assertFalse(self.backend._external_playback)
         self.assertEqual(self.mutations(), ['SetAVTransportURI', 'Play', 'Seek'])
         self.assertEqual(self.backend._position_ms, 0)
         self.backend._on_external_playback.assert_not_awaited()
         await self.backend.pause()
         self.assertTrue(await self.backend.resume())
+
+    async def test_absolute_seek_uses_one_declared_mode_without_fallback(self):
+        await self.start()
+        self.assertTrue(await self.backend.seek(3000))
+        self.assertEqual(self.seek_units, ['ABS_TIME'])
+        self.assertEqual(self.backend._position_ms, 3000)
+
+    async def test_missing_absolute_seek_declaration_does_not_probe_other_modes(self):
+        await self.start()
+        self.seek_modes = ['REL_TIME']
+        with self.assertRaises(EndpointUnavailable):
+            await self.backend.seek(3000)
+        self.assertEqual(self.seek_units, [])
+        self.assertFalse(self.backend._external_playback)
 
     async def test_fragmented_description_is_read_completely(self):
         self.fragment = True

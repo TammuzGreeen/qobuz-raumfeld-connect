@@ -4,6 +4,10 @@ Qobuz Connect for one ungrouped Raumfeld room, with native Spotify source protec
 This branch contains a **working hardware-tested preview with seeking outstanding**,
 not a fully accepted release. The running deployment is unchanged by publication.
 
+**Later development:** [seeking investigation/candidate](SEEK_REVIEW.md) is separate
+from the published preview. Candidate changes have not been deployed or hardware-
+accepted; build the tagged/pinned sources below to preserve the tested preview.
+
 ## Tested checkpoint
 
 - Playback implementation: [`560ee29`](https://github.com/TammuzGreeen/qobuz-raumfeld-connect/commit/560ee29e19e242fb336281823aa2caa36d9bcafc).

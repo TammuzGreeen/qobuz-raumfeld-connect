@@ -13,7 +13,7 @@ import xml.etree.ElementTree as ET
 
 import aiohttp
 from qobuz_proxy.backends.dlna.backend import DLNABackend
-from qobuz_proxy.backends.dlna.client import DLNAClient, SoapResult
+from qobuz_proxy.backends.dlna.client import DLNAClient, SoapResult, UPNP_AV_TRANSPORT
 from qobuz_proxy.backends.types import PlaybackState
 
 from .endpoint_catalog import Endpoint
@@ -90,6 +90,8 @@ class RoomDLNAClient(DLNAClient):
         super().__init__(parsed.hostname, parsed.port or 80, endpoint.description_url)
         self.backend, self.endpoint, self.epoch = backend, endpoint, epoch
         self.retired = False
+        self.seek_scpd = None
+        self.seek_declared = False
 
     async def _fetch_device_description(self):
         async with self._session.get(self.description_url, allow_redirects=False,
@@ -118,6 +120,9 @@ class RoomDLNAClient(DLNAClient):
         self.volume_scpd = next((urljoin(self.description_url, s.findtext('d:SCPDURL', '', ns))
             for s in device.findall('d:serviceList/d:service', ns)
             if s.findtext('d:serviceType', '', ns) == 'urn:schemas-upnp-org:service:RenderingControl:1'), None)
+        self.seek_scpd = next((urljoin(self.description_url, s.findtext('d:SCPDURL', '', ns))
+            for s in device.findall('d:serviceList/d:service', ns)
+            if s.findtext('d:serviceType', '', ns) == UPNP_AV_TRANSPORT), None)
         return self._parse_device_description(body.decode('utf8'), 'http://' + source.netloc)
 
     @trace_soap
@@ -129,7 +134,8 @@ class RoomDLNAClient(DLNAClient):
             await self.backend.before_write(self, action)
             diagnostics = getattr(self.backend, 'diagnostics', None)
             if diagnostics:
-                diagnostics.emit('soap_sending', action=action)
+                diagnostics.emit('soap_sending', action=action,
+                                 seekMode='absolute_time' if action == 'Seek' else 'not_applicable')
         result = await super()._soap_action_detailed(url, service, action, args, max_retries=1)
         if mutating:
             diagnostics = getattr(self.backend, 'diagnostics', None)
@@ -151,6 +157,48 @@ class RoomDLNAClient(DLNAClient):
                 await self.backend.release_source()
                 raise EndpointUnavailable('mutation_failed_or_uncertain')
         return result
+
+    async def seek(self, position_ms):
+        if not self.device_info:
+            return False
+        await self.verify_seek_action()
+        # Raumfeld reference controls use ABS_TIME. Choose that single mode
+        # before transmission, never probe REL_TIME then retry another mode.
+        result = await self._soap_action_detailed(self.device_info.av_transport_url,
+            UPNP_AV_TRANSPORT, 'Seek', {'InstanceID': '0', 'Unit': 'ABS_TIME',
+                                      'Target': self._ms_to_time_string(position_ms)}, max_retries=1)
+        return result.success
+
+    async def verify_seek_action(self):
+        if self.seek_declared:
+            return
+        if not self.seek_scpd:
+            raise EndpointUnavailable('seek_action_not_declared')
+        async with self._session.get(self.seek_scpd, allow_redirects=False,
+                timeout=aiohttp.ClientTimeout(total=5)) as response:
+            if response.status != 200:
+                raise EndpointUnavailable('seek_action_not_declared')
+            chunks, size = [], 0
+            async for chunk in response.content.iter_chunked(16384):
+                size += len(chunk)
+                if size > 262144:
+                    raise EndpointUnavailable('scpd_too_large')
+                chunks.append(chunk)
+        root = ET.fromstring(b''.join(chunks))
+        ns = {'s': 'urn:schemas-upnp-org:service-1-0'}
+        actions = [a for a in root.findall('s:actionList/s:action', ns)
+                   if a.findtext('s:name', '', ns) == 'Seek']
+        inputs = [(a.findtext('s:name', '', ns), a.findtext('s:relatedStateVariable', '', ns))
+                  for a in actions[0].findall('s:argumentList/s:argument', ns)
+                  if a.findtext('s:direction', '', ns) == 'in'] if len(actions) == 1 else []
+        variables = [v for v in root.findall('s:serviceStateTable/s:stateVariable', ns)
+                     if v.findtext('s:name', '', ns) == 'A_ARG_TYPE_SeekMode']
+        modes = [a.text for a in variables[0].findall('s:allowedValueList/s:allowedValue', ns)] \
+            if len(variables) == 1 else []
+        if ([a[0] for a in inputs] != ['InstanceID', 'Unit', 'Target']
+                or inputs[1][1] != 'A_ARG_TYPE_SeekMode' or 'ABS_TIME' not in modes):
+            raise EndpointUnavailable('absolute_seek_not_declared')
+        self.seek_declared = True
 
     async def set_volume(self, volume):
         # Upstream's delayed debounce could escape the source/command generation.
@@ -502,10 +550,10 @@ class DeferredRoomBackend(DLNABackend):
         # Refresh that evidence again before the single transport write.
         await self.refresh()
         self.check_operation()
-        if action == 'SetAVTransportURI':
+        if action in {'SetAVTransportURI', 'Seek'}:
             captured = operation.get()
             if captured is not None and captured[1] != self.capture_operation()[1]:
-                raise EndpointUnavailable('superseded_before_uri')
+                raise EndpointUnavailable('superseded_before_write')
         if client is not self._client or client.retired:
             raise EndpointUnavailable('retired_endpoint')
 
@@ -587,7 +635,7 @@ class DeferredRoomBackend(DLNABackend):
 
     @source_operation
     async def seek(self, position_ms):
-        await super().seek(position_ms)
+        return await super().seek(position_ms)
 
     async def stop(self, **kwargs):
         if not self.closed:

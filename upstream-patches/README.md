@@ -1,5 +1,9 @@
 # Isolated partial playback-state backport
 
+Later candidate builds also apply `seek-acknowledgement.patch`, reviewed separately
+in [SEEK_REVIEW.md](../SEEK_REVIEW.md). The published preview applied only the
+partial-state patch below. Neither contribution is submitted/accepted upstream.
+
 Base: qobuz-proxy `91db990abeb486005a8315a6b1e722df776c4ba4` (unchanged dependency pin).
 Only `qobuz_proxy/playback/player.py` is patched. Attribution and the installed
 upstream package remain intact. The Docker build verifies the original source

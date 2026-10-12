@@ -2,6 +2,7 @@
 import hashlib
 from pathlib import Path
 import runpy
+import tempfile
 import unittest
 
 from qobuz_proxy.playback import player
@@ -16,3 +17,17 @@ class UpstreamPatchTests(unittest.TestCase):
         self.assertIn(b'_requested_playing_state', installed)
         with self.assertRaisesRegex(ValueError, 'Unreviewed upstream'):
             installer['apply'](installed, (root / 'upstream-patches/partial-playback-state.patch').read_text())
+
+    def test_seek_patch_refuses_partial_or_unreviewed_source(self):
+        root = Path(__file__).resolve().parents[1]
+        installer = runpy.run_path(str(root / 'docker/apply-upstream-seek-patch.py'))
+        diff = (root / 'upstream-patches/seek-acknowledgement.patch').read_text()
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(ValueError):
+                installer['prepare'](Path(directory), '')
+            for relative in installer['EXPECTED']:
+                path = Path(directory) / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('unreviewed synthetic source\n')
+            with self.assertRaisesRegex(ValueError, 'Unreviewed upstream'):
+                installer['prepare'](Path(directory), diff)
