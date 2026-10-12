@@ -5,9 +5,10 @@ This branch contains a **working hardware-tested preview with seeking outstandin
 not a fully accepted release. The running deployment is unchanged by publication.
 
 **Later development:** [seeking investigation/candidate](SEEK_REVIEW.md) is separate
-from the published preview. Candidate `d58a5cd` has been separately approved and
-deployed; playing-track scrubbing passes, but paused scrubbing audibly auto-resumed
-and is not accepted. Other seek variants and broader acceptance are pending. Image/acceptance details
+from the published preview. Candidate `361e46e` is now separately approved/deployed;
+paused-scrub silence and explicit resume-position acceptance are pending. Previous
+`d58a5cd` passed playing scrubbing but auto-resumed during paused scrubbing.
+Broader acceptance remains incomplete. Image/acceptance details
 below identify the preserved working preview, not this newer experimental deployment.
 Build the tagged/pinned sources below to preserve the tested preview.
 

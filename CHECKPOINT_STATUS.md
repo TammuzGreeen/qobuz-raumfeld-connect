@@ -3,9 +3,10 @@
 **Working preview; seeking outstanding; not complete hardware acceptance.**
 
 Later seeking candidate work is described in [SEEK_REVIEW.md](SEEK_REVIEW.md).
-Candidate `d58a5cd` is now separately approved/deployed; playing-track scrub passes,
-but paused scrub caused unintended audible resume and is not accepted. Other seek
-variants and broader hardware acceptance remain pending. It does not change this checkpoint's preserved
+Candidate `361e46e` is now separately approved/deployed; paused-scrub silence and
+explicit resume-position acceptance are pending. Previous `d58a5cd` passed playing
+scrubbing but auto-resumed during paused scrubbing. Broader acceptance remains
+incomplete. It does not change this checkpoint's preserved
 image, immutable tag or hardware evidence.
 
 Publication: `upstream-first-preview-2026-10-12` on

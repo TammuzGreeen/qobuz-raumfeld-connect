@@ -914,3 +914,20 @@ No Node implementation changed and no speaker mutation/deployment was performed.
 Running `d58a5cd` remains unchanged, including its known paused-scrub auto-resume
 failure; new candidate requires separate deployment approval and user hardware
 silence/resume-position acceptance. Working-preview tag/rollback stay unchanged.
+
+## Approved silent paused-scrub deployment
+
+User separately approved deploying `361e46eec4bc745530cc70bfc6ce215410f1bc2a`.
+Running image is now `raumfeld-connect:upstream-first-paused-seek-review`; imported
+ID/config digest is
+`sha256:ecb5bbb89c611089530386ca4159cb019ba02a2ab7355c675ace08a7c2083967`.
+Archive checksum and installed backport hashes matched; paused Seek deferral is
+enabled. Retained private fresh before-state/Compose and previous `d58a5cd` image
+archive alongside original working-preview rollback. One image/pull-policy-only
+update, no retry. Healthy/authenticated, zero restarts, config/credentials/optional
+cache state, environment/mounts/host networking, room configuration/identity/
+membership/endpoint and unrelated containers preserved. Upstream launcher present,
+legacy entrypoints absent, diagnostics enabled and zero startup SOAP transmissions.
+No agent speaker controls were sent. User hardware paused silence and explicit
+resume-position test is pending; full `hardwareVerified: false`. Published preview
+tag/rollback unchanged; source handoffs follow seeking, scrobbling remains deferred.

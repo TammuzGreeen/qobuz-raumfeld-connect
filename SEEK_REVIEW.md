@@ -193,7 +193,7 @@ introduced for this observation. Preserve the working preview rollback. Confirm
 the desired paused-scrub behavior before choosing deferred seek versus deliberate
 paused-state restoration; defer handoff acceptance while this is unresolved.
 
-## Silent paused-scrub correction — not deployed
+## Silent paused-scrub correction — preparation record
 
 User confirmed paused scrubbing must stay silent until explicit Play. New candidate
 development adds `deferred-paused-seek.patch` after the two existing hash-checked
@@ -239,3 +239,29 @@ and offline supervisor/UI/health/storage/shutdown smoke. No Node implementation
 changed; prior 104 serial Node test results remain the prior candidate's evidence,
 not a newly run hardware/control acceptance. No speaker controls or deployment
 were performed during this preparation.
+
+## Approved silent paused-scrub deployment — acceptance pending
+
+User separately approved deployment of `361e46eec4bc745530cc70bfc6ce215410f1bc2a`.
+It is now running as `raumfeld-connect:upstream-first-paused-seek-review`. Imported
+image ID/config digest is
+`sha256:ecb5bbb89c611089530386ca4159cb019ba02a2ab7355c675ace08a7c2083967`,
+distinct from the local OCI index above. Archive checksum and installed player/
+DLNA backend hashes matched; room-only deferred paused Seek capability is enabled.
+
+Retained fresh private before-state/Compose/storage hashes and an archive of the
+previous `d58a5cd` image. The original tested `560ee29` working preview rollback
+also remains retained. Performed one image/pull-policy-only app update, without
+retry. Verified healthy/authenticated, zero restarts, unchanged credentials/config
+and optional cache state, environment, host networking, mounts, room configuration/
+identity/membership/endpoint and unrelated containers. Upstream launcher and
+diagnostics are present; no legacy receiver/service entrypoints. Startup showed
+zero SOAP transmissions; no agent speaker controls were sent.
+
+Hardware acceptance on this image is pending: establish audible playback, Pause,
+move the progress bar once and confirm silence continues, then explicitly Play
+and confirm audible playback from the chosen position with a steady connection.
+The paused cursor is desired intent until Play, not an applied renderer Seek.
+No prior-image control or seeking pass automatically transfers to this image.
+Overall `hardwareVerified: false`; published preview/tag unchanged, handoff tests
+follow seeking acceptance, and scrobbling remains deferred.
