@@ -3,8 +3,8 @@
 **Working preview; seeking outstanding; not complete hardware acceptance.**
 
 Later seeking candidate work is described in [SEEK_REVIEW.md](SEEK_REVIEW.md).
-Candidate `d58a5cd` is now separately approved/deployed, with hardware seeking
-acceptance pending. It does not change this published checkpoint's preserved
+Candidate `d58a5cd` is now separately approved/deployed; playing-track scrub passes,
+with other seek variants and broader hardware acceptance pending. It does not change this checkpoint's preserved
 image, immutable tag or hardware evidence.
 
 Publication: `upstream-first-preview-2026-10-12` on

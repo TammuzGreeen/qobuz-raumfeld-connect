@@ -6,7 +6,8 @@ not a fully accepted release. The running deployment is unchanged by publication
 
 **Later development:** [seeking investigation/candidate](SEEK_REVIEW.md) is separate
 from the published preview. Candidate `d58a5cd` has been separately approved and
-deployed, but hardware seeking acceptance is pending. Image/acceptance details
+deployed; playing-track scrubbing now passes, with other seek variants and broader
+acceptance pending. Image/acceptance details
 below identify the preserved working preview, not this newer experimental deployment.
 Build the tagged/pinned sources below to preserve the tested preview.
 

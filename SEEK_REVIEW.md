@@ -1,10 +1,10 @@
-# Seeking investigation and undeployed candidate
+# Seeking investigation and candidate hardware review
 
 The published `upstream-first-preview-2026-10-12` tag and preserved working image
 `560ee29` remain unchanged. After separate user approval, candidate `d58a5cd` is now
-deployed; hardware seeking acceptance is pending. This is not a seeking fix already
-accepted on hardware. No agent-driven alternative Seek has been sent to the real
-renderer. See the deployment verification below.
+deployed. Playing-track scrubbing has passed a user hardware test; paused scrubbing,
+fresh nonzero starts and broader same-image acceptance remain pending. No agent-driven
+alternative Seek has been sent to the real renderer. See deployment/test evidence below.
 
 ## Findings
 
@@ -140,3 +140,23 @@ then perform one Android scrub and inspect the single ABS_TIME Seek/response and
 actual audible position. Do not infer seek success from health or SOAP alone.
 The published preview remains the known-working rollback; its control acceptance
 does not automatically transfer to this candidate. The prerelease/tag is untouched.
+
+## First playing-track scrub — passed
+
+On deployed `d58a5cd`, user confirmed initial audio/Android progress/connection,
+then reported dragging into the middle works and the connection stays strong.
+Record audible initial playback and playing-track scrubbing as user-observed passed
+for this attempt, not blanket acceptance of every seek/start variant.
+
+Categorical diagnostics show a playing-state position-only positive delta (local
+event 9), exactly one ABS_TIME Seek transmission, acknowledged true and
+unsupportedSeek false, followed by seek completion true with no selection or
+activation-authority change. The formerly duplicated position-only path therefore
+completed as one acknowledged Seek on hardware. Container remained healthy with
+zero restarts. User observation supplies audible success; SOAP acknowledgement
+alone would not. Raw logs/metadata/positions remain private.
+
+Paused scrub/resume and fresh nonzero start still require user confirmation, as do
+affected controls/progression on this candidate. Spotify → Qobuz → Spotify handoff
+remains next after seeking acceptance; scrobbling stays deferred. Overall
+`hardwareVerified: false`; the published preview/tag and rollback are unchanged.

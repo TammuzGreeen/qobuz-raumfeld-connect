@@ -854,3 +854,19 @@ launcher present without legacy receiver/service entrypoints. Zero startup SOAP
 transmissions and zero agent speaker controls during deployment. The working
 preview prerelease/tag is unchanged. `hardwareVerified: false`; initial audible
 playback and a single Android scrub on this candidate await user observation.
+
+## First seeking-candidate playing scrub acceptance
+
+On the same deployed `d58a5cd` image, user confirmed initial audio, Android progress
+and strong connection, then reported dragging into the middle works and connection
+remains strong. Initial audible playback and this playing-track scrub are recorded
+as user-observed passed. Diagnostics captured a position-only positive update while
+playing (local event 9), one absolute-time Seek sent and acknowledged, no 710,
+seek completion true and unchanged selection/activation authority. Healthy, zero
+restarts. No agent controls were sent; raw captures stay private.
+
+This is actual hardware evidence for the declared ABS_TIME correction on the
+observed playing scrub, not merely the earlier mode hypothesis. Paused scrub/resume,
+fresh nonzero start and affected controls/progression still need acceptance on this
+candidate. Full `hardwareVerified: false`; source handoff testing follows seeking,
+scrobbling remains deferred, and the published working-preview tag is unchanged.
