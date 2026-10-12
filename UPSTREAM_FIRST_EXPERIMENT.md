@@ -807,3 +807,31 @@ account/runtime data, real LAN/room/device identifiers, raw logs and private ima
 backups remain outside Git/GitHub. Standalone Compose was validated offline with
 synthetic placeholders and no deployment. Private rollback is preserved, not
 attached as a release asset. See `CHECKPOINT_STATUS.md` and `PREVIEW_SETUP.md`.
+
+## Seeking investigation and prepared candidate after publication
+
+The user requested seeking investigation after completing the working-preview
+publication. Unmodified pinned upstream, unchanged current upstream HEAD and
+current preview were replayed against the same deterministic 710-rejecting fake
+DLNA transport with real protobuf field absence. Upstream discarded failed Seek
+results and falsely advanced its position; combined position/PLAYING messages sent
+two Seeks. The partial-intent backport additionally duplicates position-only scrub
+while playing. Newer upstream does not resolve these defects.
+
+Candidate `d58a5cd01b2e1c5cde46c4267eccaa71ad5b096b` prepares an isolated
+acknowledgement/player backport, single-Seek intent, truthful failure/start-offset
+reporting and declared Raumfeld ABS_TIME handling. No fallback probe/retry, custom
+player/queue, proxy offset/transcoding or source-safety relaxation was introduced.
+The legacy non-DLNA path retains post-start seek reconciliation; its existing
+regressions pass. Read-only real descriptor/SCPD/action-list inspection supports
+ABS_TIME as a hypothesis, not hardware proof. See `SEEK_REVIEW.md` for the comparison,
+scope, candidate image identities, tests and required hardware plan.
+
+Built local amd64 image `raumfeld-connect:upstream-first-seek-review` passed 170
+Python tests (162 project + eight standalone upstream) and offline smoke; six
+original upstream serialization and 104 serial Node tests also passed. Exported
+archive and raw private investigation outputs remain outside Git. Candidate is
+not deployed, not registry-published and not hardware-verified. The working
+`560ee29` image and immutable `upstream-first-preview-2026-10-12` publication tag
+are unchanged. Only read-only speaker diagnostics were performed; no mutating
+speaker controls. Separate approval is required for candidate deployment/testing.

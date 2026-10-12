@@ -92,3 +92,26 @@ plus both Next orders where Android emits them, natural advancement and volume.
 If ABS_TIME still receives 710 or does not move the audible position, stop and record
 failure; do not probe fallback modes or retry uncertain mutations. Spotify → Qobuz
 → Spotify handoff follows seeking acceptance; scrobbling remains deferred.
+
+## Prepared image — not deployed
+
+- Candidate implementation: `d58a5cd01b2e1c5cde46c4267eccaa71ad5b096b`.
+- Local amd64 image: `raumfeld-connect:upstream-first-seek-review`.
+- Local OCI index ID:
+  `sha256:fbbadf075b846d89275354e0d1842b884b7457ac042bcf40b0f9061c5026e2a3`.
+- Private exported archive SHA-256:
+  `fde6248dfabb9b9b7fbf971a345217a1ab3f566d604ae88bc48561edb646c312`.
+- Built candidate passed 162 project Python tests plus eight standalone upstream
+  contribution tests (170 total), and offline supervisor/UI/health/storage/shutdown
+  smoke. All six original pinned serialization tests passed on patched upstream;
+  all 104 serial Node tests passed in the development-dependency harness.
+- Diagnostics are built in and emit the fixed `absolute_time` Seek-mode category,
+  not requested positions, metadata or URLs. Runtime credentials/state are not
+  part of the image/archive. No registry publication or prerelease replacement.
+
+The working `560ee29` deployment and source-only prerelease are retained unchanged.
+This candidate has **no hardware seeking acceptance**. No agent-driven mutating
+speaker controls occurred during investigation; only bounded read-only descriptor,
+SCPD/metadata/action-list inspection and isolated synthetic playback were used.
+The next step requires separate deployment approval, not a claim that ABS_TIME has
+already solved the hardware failure.
