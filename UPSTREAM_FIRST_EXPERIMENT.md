@@ -891,3 +891,26 @@ The playing-scrub pass stands; full `hardwareVerified: false`, paused silence is
 failed/unresolved, and desired paused-scrub behavior needs confirmation before
 correction selection. Working-preview tag/rollback remain preserved; handoff tests
 are deferred while this seeking behavior is unresolved.
+
+## Prepared silent paused-scrub candidate — not deployed
+
+User confirmed scrubbing while paused must stay silent until explicit Play.
+Candidate `361e46eec4bc745530cc70bfc6ce215410f1bc2a` adds a third isolated,
+hash-checked upstream player patch. Room-only capability retains the desired paused
+cursor after read-only ownership validation; no transport mutation is sent. Desired
+UI position is distinct from applied renderer position. Explicit Play resumes then
+applies the latest target once, including zero. Failure does not fake position
+success; failed resume or invalidation discards the pending target. Stop, track/
+queue-occurrence changes, fresh selection, source loss, disconnect and endpoint
+retirement clear it; superseded ownership reads cannot retain old intent.
+
+Auto-resume fake-renderer coverage now tests actual silence before Play, not merely
+cached player PAUSED. Built local image
+`raumfeld-connect:upstream-first-paused-seek-review` passed 179 Python tests
+(169 project + ten standalone), six original upstream serialization tests and
+offline supervisor/UI/health/storage/shutdown smoke. Image/archive identities and
+acceptance scope are in `SEEK_REVIEW.md`; private archive/metadata stay outside Git.
+No Node implementation changed and no speaker mutation/deployment was performed.
+Running `d58a5cd` remains unchanged, including its known paused-scrub auto-resume
+failure; new candidate requires separate deployment approval and user hardware
+silence/resume-position acceptance. Working-preview tag/rollback stay unchanged.

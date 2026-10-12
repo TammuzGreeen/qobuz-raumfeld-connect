@@ -45,6 +45,14 @@ def make_replay(room, reject=False):
 
 
 class SeekTests(unittest.IsolatedAsyncioTestCase):
+    async def test_authority_invalidation_keeps_skip_cleanup_independent(self):
+        replay = make_replay(True)
+        with patch.object(replay.player, '_clear_skip_pending') as clear:
+            replay.player.clear_pending_paused_seek()
+            clear.assert_not_called()
+            replay.player.invalidate_pending_commands()
+            clear.assert_called_once_with()
+
     async def test_paused_auto_resume_renderer_is_not_touched_until_explicit_play(self):
         replay = make_replay(True)
         async def auto_resume():

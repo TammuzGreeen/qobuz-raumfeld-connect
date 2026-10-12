@@ -226,3 +226,16 @@ Current deployed `d58a5cd` still has the observed paused-scrub failure. This cor
 requires a separately approved deployment and user audible-silence/position test;
 no transport mutation or deployment is authorized by the behavior confirmation alone.
 Overall `hardwareVerified: false`; preserve the working preview and immutable tag.
+
+Prepared implementation `361e46eec4bc745530cc70bfc6ce215410f1bc2a` is archived
+locally as `raumfeld-connect:upstream-first-paused-seek-review` (amd64), not deployed
+or registry-published. Local OCI index is
+`sha256:b50a5d0edc0c649ae97bd96e2fa08ae91e45367ca398ebf4a936f662e3ecb423`;
+private export SHA-256 is
+`0766c22e32b016013fc53a479a52a3d06e32581c4a331efe0cbe47667d3f0993`.
+Built-image verification passed **179 Python tests** (169 project and ten standalone
+upstream contribution tests), all six original pinned upstream serialization tests
+and offline supervisor/UI/health/storage/shutdown smoke. No Node implementation
+changed; prior 104 serial Node test results remain the prior candidate's evidence,
+not a newly run hardware/control acceptance. No speaker controls or deployment
+were performed during this preparation.
