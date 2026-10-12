@@ -732,3 +732,16 @@ Overall `hardwareVerified: false`. Reporting/scrobbling, uninterrupted Spotify,
 source handoffs, exhausted-queue restart and hardware disappearance/rebinding
 remain separate outstanding acceptance tests. No new speaker command, diagnostic
 capture or cloud acknowledgement is claimed from this user confirmation.
+
+## Partial-state volume feedback confirmation
+
+Asked specifically whether Android's volume indicator follows the physical knob
+and whether app volume changes stay put without jumping back, user answered yes
+and confirmed steady volume changes on deployed implementation `560ee29`.
+Both feedback details are now recorded as user-observed passed, superseding the
+pending confirmation above. The requested same-image control checks have passed:
+initial audible playback, manual Next, Pause/resume, natural queued advancement,
+Android volume and physical knob feedback, with steady connection as reported.
+Overall `hardwareVerified: false`; reporting/scrobbling, uninterrupted Spotify,
+source handoffs, exhausted-queue restart and hardware disappearance/rebinding
+remain outstanding. Reverse-order Next coverage on this image remains synthetic.
