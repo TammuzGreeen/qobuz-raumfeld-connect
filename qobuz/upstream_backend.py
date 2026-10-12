@@ -246,6 +246,8 @@ class RoomDLNAClient(DLNAClient):
 
 
 class DeferredRoomBackend(DLNABackend):
+    # ABS_TIME Seek resumes this renderer even while paused.
+    defer_paused_seek = True
     def __init__(self, companion, room_id, name, poll_seconds=2):
         super().__init__('127.0.0.1', name=name)
         self.companion, self.room_id = companion, room_id
@@ -418,6 +420,8 @@ class DeferredRoomBackend(DLNABackend):
         async with self._binding_lock:
             if self.endpoint == endpoint:
                 return
+            if self.player:
+                self.player.clear_pending_paused_seek()
             old = self._client
             self.epoch += 1
             epoch = self.epoch
@@ -456,6 +460,8 @@ class DeferredRoomBackend(DLNABackend):
     async def disconnect(self):
         self.closed = True
         self.selection_generation += 1
+        if self.player:
+            self.player.invalidate_pending_commands()
         self._is_connected = False
         tasks = [getattr(self, 'monitor', None), self._poll_task]
         for task in tasks:
@@ -636,6 +642,12 @@ class DeferredRoomBackend(DLNABackend):
     @source_operation
     async def seek(self, position_ms):
         return await super().seek(position_ms)
+
+    @source_operation
+    async def validate_paused_seek(self):
+        # Read-only ownership check before retaining any positional intent.
+        if not await self._owns_transport():
+            raise EndpointUnavailable('paused_seek_source_unconfirmed')
 
     async def stop(self, **kwargs):
         if not self.closed:

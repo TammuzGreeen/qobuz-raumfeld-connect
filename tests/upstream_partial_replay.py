@@ -91,7 +91,7 @@ class Replay:
         self.row = {'roomId': 'synthetic-room', 'assigned': True, 'endpoint': endpoint_row,
                     'rendererIds': ['synthetic-physical'], 'spotifyVersion': 0}
         if room:
-            companion = SimpleNamespace(lookup=AsyncMock(side_effect=lambda _: dict(self.row)))
+            companion = SimpleNamespace(lookup=AsyncMock(side_effect=lambda _: dict(self.row)), close=AsyncMock())
             self.backend = DeferredRoomBackend(companion, 'synthetic-room', 'Synthetic')
             self.backend.endpoint = Endpoint.parse('synthetic-room', endpoint_row)
             self.backend.epoch = 1

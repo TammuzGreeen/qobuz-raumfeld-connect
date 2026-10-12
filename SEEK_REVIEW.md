@@ -192,3 +192,37 @@ deployment, agent-driven transport mutation, fallback Pause/Stop or retry has be
 introduced for this observation. Preserve the working preview rollback. Confirm
 the desired paused-scrub behavior before choosing deferred seek versus deliberate
 paused-state restoration; defer handoff acceptance while this is unresolved.
+
+## Silent paused-scrub correction — not deployed
+
+User confirmed paused scrubbing must stay silent until explicit Play. New candidate
+development adds `deferred-paused-seek.patch` after the two existing hash-checked
+patches, without changing the upstream dependency pin or replacing its player.
+Only the room backend enables deferral; stock non-room DLNA and guarded behavior
+remain unchanged.
+
+While paused, a scrub performs a read-only authority/ownership check and stores
+the latest desired position, including zero. Android state reports that desired
+paused cursor, separately from the unchanged applied renderer position. There is
+**no Seek, Play, Pause or Stop** during paused scrubbing. This is accepted pending
+intent, not an acknowledged renderer seek. It does not advance listening position.
+
+Explicit Play consumes the target once: acknowledged resume first, then one Seek.
+A rejected offset reports actual playback without false target success or retry;
+failed resume discards the pending offset without sending Seek. Stop, track load,
+changed queue occurrence, authority invalidation/fresh selection, source release,
+disconnect and endpoint retirement discard the target. Read-only-check supersession
+cannot retain an older target under a newer command. No fallback mutation or timed
+pairing is introduced.
+
+Tests now model a renderer that auto-resumes on Seek, repeated paused targets,
+target zero, desired versus applied reporting, explicit Play consumption, rejection,
+failed resume, Stop/load/selection/source/disconnect/endpoint invalidation, takeover
+and supersession during the ownership read. Existing Next, volume, playing-scrub
+and guarded regressions remain in the suite. Standalone upstream-only tests cover
+the pending-position semantics separately.
+
+Current deployed `d58a5cd` still has the observed paused-scrub failure. This correction
+requires a separately approved deployment and user audible-silence/position test;
+no transport mutation or deployment is authorized by the behavior confirmation alone.
+Overall `hardwareVerified: false`; preserve the working preview and immutable tag.

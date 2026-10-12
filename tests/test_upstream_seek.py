@@ -45,6 +45,98 @@ def make_replay(room, reject=False):
 
 
 class SeekTests(unittest.IsolatedAsyncioTestCase):
+    async def test_paused_auto_resume_renderer_is_not_touched_until_explicit_play(self):
+        replay = make_replay(True)
+        async def auto_resume():
+            replay.renderer.state = 'PLAYING'
+        replay.renderer.after_seek = auto_resume
+        with patch.object(DLNAClient, '_soap_action_detailed', fake_soap):
+            await replay.start(paused=True)
+            actual = replay.player._position_value_ms
+            for target in (60000, 90000, 0):
+                await replay.dispatch(state_message(position=target, queue=False))
+                self.assertEqual(replay.renderer.state, 'PAUSED_PLAYBACK')
+                self.assertEqual(replay.result()['writes'], [])
+                self.assertEqual(replay.player._position_value_ms, actual)
+                self.assertEqual(replay.player.current_position_ms, target)
+                self.assertEqual(replay.player.get_state_dict()['currentPosition']['value'], target)
+            await replay.dispatch(state_message(playing=2, queue=False))
+        self.assertEqual(replay.result()['writes'], ['Play', 'Seek'])
+        self.assertEqual(replay.renderer.position_ms, 0)
+        self.assertIsNone(replay.player._pending_paused_position_ms)
+
+    async def test_paused_target_cleared_by_stop_load_selection_and_source_loss(self):
+        for invalidation in ('stop', 'load', 'selection', 'release', 'disconnect', 'endpoint'):
+            with self.subTest(invalidation=invalidation):
+                replay = make_replay(True)
+                with patch.object(DLNAClient, '_soap_action_detailed', fake_soap):
+                    await replay.start(paused=True)
+                    await replay.dispatch(state_message(position=60000, queue=False))
+                    self.assertEqual(replay.player._pending_paused_position_ms, 60000)
+                    if invalidation == 'stop':
+                        await replay.dispatch(state_message(playing=1, queue=False))
+                    elif invalidation == 'load':
+                        await replay.dispatch(state_message('102', 3))
+                    elif invalidation == 'selection':
+                        replay.backend.prepare_for_selection()
+                    elif invalidation == 'release':
+                        await replay.backend.release_source()
+                    elif invalidation == 'endpoint':
+                        await replay.backend.rebind(None)
+                    else:
+                        await replay.backend.disconnect()
+                    self.assertIsNone(replay.player._pending_paused_position_ms)
+                self.assertNotIn('Seek', replay.result()['writes'])
+
+    async def test_failed_deferred_seek_after_play_reports_real_mode_not_target(self):
+        replay = make_replay(True, reject=True)
+        with patch.object(DLNAClient, '_soap_action_detailed', fake_soap):
+            await replay.start(paused=True)
+            await replay.dispatch(state_message(position=60000, queue=False))
+            self.assertEqual(replay.result()['writes'], [])
+            await replay.dispatch(state_message(playing=2, queue=False))
+        self.assertEqual(replay.result()['writes'], ['Play', 'Seek'])
+        self.assertEqual(replay.player.state, PlaybackState.PLAYING)
+        self.assertLess(replay.player.current_position_ms, 10000)
+        self.assertIsNone(replay.player._pending_paused_position_ms)
+
+    async def test_source_takeover_before_explicit_play_discards_paused_target(self):
+        replay = make_replay(True)
+        with patch.object(DLNAClient, '_soap_action_detailed', fake_soap):
+            await replay.start(paused=True)
+            await replay.dispatch(state_message(position=60000, queue=False))
+            replay.renderer.uri = 'spotify:synthetic-source'
+            replay.row['spotifyVersion'] += 1
+            await replay.dispatch(state_message(playing=2, queue=False))
+        self.assertEqual(replay.result()['writes'], [])
+        self.assertIsNone(replay.player._pending_paused_position_ms)
+
+    async def test_failed_explicit_resume_does_not_seek_or_keep_pending_target(self):
+        replay = make_replay(True)
+        with patch.object(DLNAClient, '_soap_action_detailed', fake_soap):
+            await replay.start(paused=True)
+            await replay.dispatch(state_message(position=60000, queue=False))
+            with patch.object(replay.backend, 'resume', return_value=False):
+                self.assertFalse(await replay.player.play())
+        self.assertEqual(replay.result()['writes'], [])
+        self.assertEqual(replay.player.state, PlaybackState.PAUSED)
+        self.assertIsNone(replay.player._pending_paused_position_ms)
+        self.assertLess(replay.player.current_position_ms, 10000)
+
+    async def test_superseded_paused_scrub_cannot_store_after_read_only_check(self):
+        replay = make_replay(True)
+        with patch.object(DLNAClient, '_soap_action_detailed', fake_soap):
+            await replay.start(paused=True)
+            replay.renderer.gate('GetMediaInfo', 2)
+            first = replay.dispatch(state_message(position=60000, queue=False))
+            await asyncio.wait_for(replay.renderer.entered.wait(), 5)
+            second = replay.dispatch(state_message(playing=1, queue=False))
+            await asyncio.wait_for(second.test_entered.wait(), 5)
+            replay.renderer.proceed.set()
+            await asyncio.wait_for(asyncio.gather(first, second), 5)
+        self.assertIsNone(replay.player._pending_paused_position_ms)
+        self.assertNotIn('Seek', replay.result()['writes'])
+
     async def test_playing_position_deltas_send_one_seek(self):
         for room in (False, True):
             for mode in (None, 2):
@@ -60,6 +152,8 @@ class SeekTests(unittest.IsolatedAsyncioTestCase):
     async def test_rejected_seek_does_not_change_clock_or_retry(self):
         for room in (False, True):
             for paused in (False, True):
+                if room and paused:
+                    continue  # Paused room intents are deferred, not transmitted.
                 replay = make_replay(room, reject=True)
                 with patch.object(DLNAClient, '_soap_action_detailed', fake_soap):
                     await replay.start(paused=paused)
@@ -80,9 +174,9 @@ class SeekTests(unittest.IsolatedAsyncioTestCase):
                 await replay.start(paused=True)
                 await replay.dispatch(state_message(position=60000, queue=False))
                 self.assertEqual(replay.player.state, PlaybackState.PAUSED)
-                self.assertEqual(replay.result()['writes'], ['Seek'])
+                self.assertEqual(replay.result()['writes'], [] if room else ['Seek'])
                 await replay.dispatch(state_message(playing=2, queue=False))
-            self.assertEqual(replay.result()['writes'], ['Seek', 'Play'])
+            self.assertEqual(replay.result()['writes'], ['Play', 'Seek'] if room else ['Seek', 'Play'])
             self.assertEqual(replay.renderer.position_ms, 60000)
 
     async def test_nonzero_start_is_reported_only_after_seek_ack(self):

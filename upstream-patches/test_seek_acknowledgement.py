@@ -47,3 +47,28 @@ class SeekAcknowledgementTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(replay.player.current_position_ms, 1000)
         self.assertLess(replay.player.current_position_ms, 10000)
         replay.backend.seek.assert_awaited_once_with(60000)
+
+    async def test_paused_offset_is_desired_only_until_explicit_play(self):
+        replay = self.fixture()
+        replay.backend.defer_paused_seek = True
+        replay.backend.validate_paused_seek = AsyncMock()
+        await replay.dispatch('101', 2)
+        await replay.dispatch(mode=3)
+        for target in (60000, 0):
+            await replay.dispatch(position=target)
+            replay.backend.seek.assert_not_awaited()
+            self.assertEqual(replay.player.current_position_ms, target)
+        await replay.dispatch(mode=2)
+        replay.backend.seek.assert_awaited_once_with(0)
+        self.assertIsNone(replay.player._pending_paused_position_ms)
+
+    async def test_authority_invalidation_discards_paused_offset(self):
+        replay = self.fixture()
+        replay.backend.defer_paused_seek = True
+        replay.backend.validate_paused_seek = AsyncMock()
+        await replay.dispatch('101', 2)
+        await replay.dispatch(mode=3)
+        await replay.dispatch(position=60000)
+        replay.player.invalidate_pending_commands()
+        self.assertIsNone(replay.player._pending_paused_position_ms)
+        replay.backend.seek.assert_not_awaited()
