@@ -931,3 +931,21 @@ legacy entrypoints absent, diagnostics enabled and zero startup SOAP transmissio
 No agent speaker controls were sent. User hardware paused silence and explicit
 resume-position test is pending; full `hardwareVerified: false`. Published preview
 tag/rollback unchanged; source handoffs follow seeking, scrobbling remains deferred.
+
+## Silent paused scrub and explicit resume acceptance on current image
+
+User completed the requested initial playback, Pause, paused progress-bar change
+and explicit Play steps and confirmed everything works on deployed `361e46e`.
+Record initial audible playback, paused-scrub silence, audible resume from the
+chosen point and steady connection as passed for this attempt. Capture confirms
+acknowledged Pause (event 58), position-only positive delta while paused (event 60)
+without any transport transmission, then explicit PLAYING (event 62), acknowledged
+Play followed by exactly one acknowledged ABS_TIME Seek. No 710 or selection/
+activation authority change. Deferred seek true is pending-intent acceptance, not
+a physical Seek acknowledgement. Audible evidence comes from the user.
+
+Healthy, zero restarts; read-only evidence collection, no agent controls or deployment
+change. Private raw captures stay outside Git. Both source handoffs are next as
+user-driven acceptance; fresh nonzero starts and current-image control/playing-scrub
+regression remain separately outstanding. Full `hardwareVerified: false`, scrobbling
+deferred, preserved preview/tag/rollback unchanged.

@@ -1,10 +1,11 @@
 # Seeking investigation and candidate hardware review
 
 The published `upstream-first-preview-2026-10-12` tag and preserved working image
-`560ee29` remain unchanged. After separate user approval, candidate `d58a5cd` is now
-deployed. Playing-track scrubbing has passed a user hardware test; paused scrubbing
-caused unintended audible resume and is not accepted. Fresh nonzero starts and
-broader same-image acceptance remain pending. No agent-driven
+`560ee29` remain unchanged. After separate user approval, candidate `361e46e` is now
+deployed. Paused scrubbing stays silent and explicit Play resumes from the selected
+point in the user hardware test. Earlier `d58a5cd` passed playing scrubbing but
+auto-resumed during paused scrubbing. Fresh nonzero starts and broader same-image
+acceptance remain pending. No agent-driven
 alternative Seek has been sent to the real renderer. See deployment/test evidence below.
 
 ## Findings
@@ -265,3 +266,26 @@ The paused cursor is desired intent until Play, not an applied renderer Seek.
 No prior-image control or seeking pass automatically transfers to this image.
 Overall `hardwareVerified: false`; published preview/tag unchanged, handoff tests
 follow seeking acceptance, and scrobbling remains deferred.
+
+## Silent paused scrub and explicit resume — passed on `361e46e`
+
+User completed audible playback → Pause → moving the progress bar while paused →
+explicit Play and confirmed everything works. Record initial audible playback,
+paused-scrub silence, audible resume from the chosen point and connection stability
+as user-observed passed for this attempt on the current image.
+
+Categorical capture shows one acknowledged Pause (local event 58), a positive
+position-only update while paused (event 60) with **zero transport transmissions**,
+then explicit PLAYING (event 62) with one acknowledged Play followed by one
+acknowledged ABS_TIME Seek. No 710, no duplicate Seek, no selection/activation
+authority change. The paused seek method's true result means desired intent was
+retained, not that a renderer Seek occurred. User observation supplies audible
+silence and resume-position evidence; acknowledgements alone do not.
+
+Healthy, zero restarts; no agent controls or deployment changes during evidence
+collection. Raw logs stay private. Fresh nonzero starts, current-image playing
+scrubbing/control regression and both source handoffs remain distinct outstanding
+checks. Proceed to user-driven Spotify → Qobuz → Spotify handoff using fresh explicit
+Qobuz selection plus Play; do not infer reclamation authority from connection alone.
+Scrobbling remains deferred and overall `hardwareVerified: false`. Published
+preview/tag and rollback unchanged.

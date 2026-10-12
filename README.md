@@ -6,7 +6,8 @@ not a fully accepted release. The running deployment is unchanged by publication
 
 **Later development:** [seeking investigation/candidate](SEEK_REVIEW.md) is separate
 from the published preview. Candidate `361e46e` is now separately approved/deployed;
-paused-scrub silence and explicit resume-position acceptance are pending. Previous
+paused-scrub silence and explicit resume from the selected point now pass the user
+hardware test, with steady connection. Previous
 `d58a5cd` passed playing scrubbing but auto-resumed during paused scrubbing.
 Broader acceptance remains incomplete. Image/acceptance details
 below identify the preserved working preview, not this newer experimental deployment.
