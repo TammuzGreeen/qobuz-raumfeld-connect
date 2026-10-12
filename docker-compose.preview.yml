@@ -1,0 +1,30 @@
+# Standalone working-preview template; do not combine with the older release Compose.
+# No registry pull, automatic build, credentials or household/device identifiers.
+# Placeholders and preparation/rollback steps: PREVIEW_SETUP.md.
+services:
+  raumfeld-connect:
+    image: ${PREVIEW_IMAGE:-raumfeld-connect:upstream-first-partial-state-review}
+    pull_policy: never
+    network_mode: host
+    init: true
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - preview-data:/data
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      API_TOKEN: ${API_TOKEN:?Set your private API token of at least 32 characters}
+      LAN_ADDRESS: ${LAN_ADDRESS:?Set the Docker host IPv4 address on the speaker LAN}
+      RAUMFELD_HOST: ""
+      API_BIND: 127.0.0.1
+    stop_grace_period: 12s
+# Use the EXISTING prepared volume; never create a replacement during upgrade.
+volumes:
+  preview-data:
+    external: true
+    name: ${RAUMFELD_DATA_VOLUME:?Set the name of your existing prepared private data volume}

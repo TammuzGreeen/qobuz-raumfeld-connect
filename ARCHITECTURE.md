@@ -1,5 +1,11 @@
 # Architecture
 
+**Historical guarded-path architecture below.** The current upstream-first working
+preview uses upstream sessions/queue/player/reporting/audio proxy/DLNA, with Node
+for discovery and explicit on-demand renderer creation. See the
+[current README](README.md#architecture) and [checkpoint status](CHECKPOINT_STATUS.md).
+The lease/replay admission design below is not used by the preview launcher.
+
 ```text
 Qobuz app ── mDNS / Connect HTTP ──> per-room upstream DiscoveryService
                                             │ explicit selection

@@ -774,3 +774,36 @@ takeover. Preserve upstream player/queue/reporting and all existing control pass
 no arbitrary pairing window or retry on uncertain mutations. A new candidate and
 speaker-changing validation still require separate approval. Overall
 `hardwareVerified: false`; seeking is now a known failed acceptance item.
+
+## Working-preview publication checkpoint
+
+User explicitly authorized preserving/publishing the current working state and a
+GitHub prerelease before any further seeking investigation. Publication changes
+only documentation and a sanitized standalone Compose/manifest; playback sources
+remain the tested `560ee29` implementation. Thirty-two application/backport files
+read from the running image match that revision. Running imported image ID/config
+digest is `sha256:4baf7a4f6b3d480a00e8f8abe0f9711a8df3747cee2cbaa8368e0e01d528679f`;
+the local OCI index ID differs as already recorded.
+
+Fresh private runtime/Compose/storage-hash snapshots and an exact running-image
+rollback archive were retained on the deployment host. The existing local tested
+image archive checksum was verified too. Running container identity, image,
+restart count, effective Compose and storage hashes stayed unchanged; no app
+update, playback edit or speaker control occurred during this checkpoint.
+
+README/current status/changelog reconcile the user's successful control tests
+with the broader acceptance record. Audible playback, Android Next, Pause/resume,
+natural advancement, app volume without jump-back and physical knobs with Android
+feedback are hardware-verified in the recorded one-room/CD scope. Seeking is a
+known failure. Reporting/scrobbling, Spotify continuity, both handoffs,
+exhausted-queue restart and hardware rebinding are implemented but not yet
+separately verified; no missing-feature claim is inferred. Unsupported preview
+features are identified from explicit code restrictions.
+
+Publication tag is `upstream-first-preview-2026-10-12` on the experiment branch,
+not main. Source-only prerelease: no preview registry image or downloadable OCI
+asset is published; older release images are not this tested preview. Credentials,
+account/runtime data, real LAN/room/device identifiers, raw logs and private image
+backups remain outside Git/GitHub. Standalone Compose was validated offline with
+synthetic placeholders and no deployment. Private rollback is preserved, not
+attached as a release asset. See `CHECKPOINT_STATUS.md` and `PREVIEW_SETUP.md`.

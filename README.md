@@ -1,156 +1,115 @@
-# Raumfeld Connect
+# Raumfeld Connect — upstream-first working preview
 
-Qobuz Connect for Raumfeld speakers, with native Spotify source arbitration.
-One Docker image bundles an unmodified, pinned `node-raumkernel` and
-`qobuz-proxy`, connected by a small guarded backend.
+Qobuz Connect for one ungrouped Raumfeld room, with native Spotify source protection.
+This branch contains a **working hardware-tested preview with seeking outstanding**,
+not a fully accepted release. The running deployment is unchanged by publication.
 
-## Version 0.2.0
+## Tested checkpoint
 
-- Qobuz OAuth login through a setup page; no password is stored.
-- Select individual rooms to advertise in the Qobuz app, with stable identities.
-- Play, pause, resume, stop, seek and volume; upstream queue handling provides
-  next/previous, metadata, state reporting and automatic track advance.
-- HTTP audio relay with byte-range support for speakers and seeking.
-- Explicit app selection authorizes takeover. Spotify/native source changes,
-  host loss, stale state and topology changes revoke Qobuz control.
-- Published Linux amd64/arm64 images, persistent configuration and credentials,
-  process supervision, health checks and CI.
+- Playback implementation: [`560ee29`](https://github.com/TammuzGreeen/qobuz-raumfeld-connect/commit/560ee29e19e242fb336281823aa2caa36d9bcafc).
+- Running amd64 image ID (Docker config digest):
+  `sha256:4baf7a4f6b3d480a00e8f8abe0f9711a8df3747cee2cbaa8368e0e01d528679f`.
+- Publication tag: [`upstream-first-preview-2026-10-12`](https://github.com/TammuzGreeen/qobuz-raumfeld-connect/releases/tag/upstream-first-preview-2026-10-12).
+  Its checkpoint adds documentation/configuration; it is not a newly deployed image.
+- Scope: Android → actual upstream Qobuz Connect → one ungrouped Raumfeld virtual
+  renderer, CD-quality configuration, Linux host networking. User-observed tests
+  apply to this exact image, not every device, firmware, platform or ordering.
 
-**Experimental: actual Qobuz account login and playback on Raumfeld hardware
-have not been verified.** Tests cover simulated playback, ownership races,
-upstream interface integration and container lifecycle. Grouped playback and
-gapless transitions are not enabled. No separate Spotify receiver is installed.
+### Working and hardware-verified
 
-## Install
+Based on recorded user tests on that image:
 
-**TrueNAS:** use the [Custom App GUI guide](TRUENAS.md). Enter the published image
-and environment variables directly; no terminal or Compose file is needed.
-Host networking and persistent storage are configured in the TrueNAS form.
+- Audible playback.
+- Android Next, with audible next track and steady connection.
+- Pause/resume.
+- Natural queued-track advancement.
+- App volume without jump-back.
+- Physical volume knobs with feedback to Android.
 
-Use a native Linux Docker host on the speaker LAN.
+### Known failure
 
-```sh
-git clone https://github.com/TammuzGreeen/qobuz-raumfeld-connect.git
-cd qobuz-raumfeld-connect
-python3 docker/configure.py
-docker compose pull
-docker compose up -d
+**Seeking / mid-track playback does not work.** The recorded scrub receives
+renderer error 710; a duplicate Seek and optimistic success reporting are also
+recorded. No seeking correction is included in this checkpoint.
+
+### Implemented but awaiting verification
+
+These are **not yet separately verified** on the tested preview: real Qobuz
+playback reporting/account history and linked Last.fm scrobbling (deferred), idle
+Spotify continuity, Spotify → Qobuz and Qobuz → Spotify handoffs, exhausted-queue
+restart, and renderer disappearance/endpoint rebinding. Reverse-order Android Next
+is covered synthetically, but the accepted live attempt used item → Play ordering.
+Unverified does not mean unimplemented. Overall `hardwareVerified` remains false
+until the broader acceptance plan passes.
+
+### Intentionally unsupported in this preview
+
+Multiroom/grouped operation, qualities other than the configured CD setting,
+gapless arming, upstream UI room add/edit/remove, automatic source reclamation,
+room drop/regroup and fallback/recovery transport retries are disabled or rejected.
+There is no separate Spotify receiver; Spotify runs natively on the speakers.
+
+## Architecture
+
+```text
+Android → upstream discovery/session/WebSocket/command handler
+        → upstream queue/player/reporting/audio proxy
+        → upstream DLNA + explicit room/source-safety compatibility
+        → Raumfeld virtual renderer
+Node    → discovery, endpoint/native-source evidence, explicit on-demand zone creation
 ```
 
-The configuration helper asks for the **Docker host's LAN IPv4 address**, creates
-`.env` with a random setup token, and does not overwrite an existing file.
-Alternatively, copy `.env.example` to `.env`, fill `LAN_ADDRESS`, and set
-`API_TOKEN` to a token from `openssl rand -hex 32`. Set `RAUMFELD_HOST` only if
-automatic host discovery fails.
+`qobuz-proxy` is pinned to `91db990abeb486005a8315a6b1e722df776c4ba4`
+(package version 1.7.2), with one hash-checked, isolated player backport for partial
+playback intent. It is **not wholly unmodified upstream**. Node's pinned
+`node-raumkernel` handles discovery and on-demand renderer creation, not the
+Qobuz playback engine. No custom receiver handshake admission, ownership lease,
+session replay registry or timed message-pairing window is used in this path.
+Source/topology/session retirement is terminal; fresh explicit Qobuz selection
+plus Play is required to replace another source. Passive discovery never creates
+a zone. See [current status](CHECKPOINT_STATUS.md),
+[backport rationale](upstream-patches/README.md) and
+[chronological evidence](UPSTREAM_FIRST_EXPERIMENT.md).
 
-Open `http://<Docker-host-IP>:8788`, unlock with `API_TOKEN` from `.env`, sign in
-with Qobuz, and select rooms and quality. Click Refresh after discovery/login.
-Selected available single rooms appear in the Qobuz app. Choose one in the app
-to explicitly switch that room from its current source. Playback does not start
-merely because the container starts or a room is configured.
+## Install, preserve state and roll back
 
-Image: `ghcr.io/tammuzgreeen/qobuz-raumfeld-connect:0.2.0`. If the GitHub package is
-private, authenticate with `docker login ghcr.io` using a GitHub token permitted
-to read the package. Package visibility can be managed in GitHub. Source builds:
+**No preview container image is published to a registry or attached for download.**
+The prerelease provides source archives only. The older `v0.2.0` image is a different
+guarded path; it is not this hardware-tested preview. Do not pull `latest` as a
+substitute for the tested image.
 
-```sh
-docker compose -f docker-compose.yml -f docker-compose.build.yml up --build -d
-```
+Use [PREVIEW_SETUP.md](PREVIEW_SETUP.md) for pinned source-build/load, private state
+preparation, loopback-only UI access and rollback instructions. The standalone
+[docker-compose.preview.yml](docker-compose.preview.yml) reproduces the tested
+deployment shape with documented placeholders. It requires an existing private
+data volume, host LAN address and API token; neither personal room/account files
+nor runtime data are supplied by the repository. There is no automatic deployment.
 
-## Networking and storage
+Host networking is required on a trusted Linux speaker LAN. The tested discovery
+and audio-proxy ports are 8790 and 8890; companion/status UI bind to loopback on
+8787/8788. Do not expose the interfaces publicly. Preserve `/data`, original
+credentials, selected one-room/CD configuration and your corrected `LAN_ADDRESS`.
+Leave `RAUMFELD_HOST` empty for discovery. Runtime data and backups are secrets.
 
-Host networking enables multicast discovery and speaker callbacks. Allow LAN
-traffic for setup TCP 8788, configured receiver/audio TCP ports 8790–8839, mDNS
-UDP 5353, SSDP UDP 1900 and UPnP callback ports chosen by upstream. Node's control
-API stays on localhost:8787. Bind `LAN_ADDRESS` to the interface speakers can
-reach. The setup/Connect interfaces are for a trusted LAN; use a private network
-or TLS reverse proxy for remote administration. Do not forward them publicly.
-For a reverse proxy, set `PUBLIC_URL` to the browser-facing setup URL.
+## Development and limitations
 
-The `raumfeld-data` named volume persists room configuration, stable ports and
-Qobuz tokens. Files are written atomically with owner-only permissions by UID
-10001. Treat backups as credentials. Signing out clears the stored login and
-releases sessions without sending Stop to another source. Do not delete the
-volume when upgrading. Recreate the container after changing `.env`.
+Runtime dependencies and verified effective settings are recorded in
+[preview-checkpoint.json](preview-checkpoint.json); lockfiles and Docker bases
+remain pinned. Byte-for-byte rebuild identity is not promised: build-backend
+dependencies and image-export metadata can differ. Preserve the tested image for
+an exact rollback rather than relying on a rebuild.
 
-## Source protection
+The candidate passed 147 project Python tests, four standalone upstream-contribution
+tests, six original upstream serialization tests, 104 serial Node tests and offline
+supervisor/UI/health/storage/shutdown smoke. Those are synthetic/container results,
+not reporting acknowledgements, audible hardware tests or Spotify continuity proof.
+Tests requiring the player backport should run in the built image; plain `uv sync`
+installs the pinned original player without that build-time backport.
 
-- Only a new Qobuz app discovery handshake creates a 30-second, one-use selection.
-- First playback consumes it and starts a renewable 15-second ownership lease.
-- Heartbeats cannot extend unused selections. Replayed handshakes, cloud
-  reconnects and queue updates cannot reclaim a lost lease.
-- Single-room commands refresh observations and verify ownership before each
-  action. Explicit first playback may create a missing single-room zone once.
-- New Spotify/external URI evidence or loss of state revokes the lease. No
-  automatic repair, regrouping or forced retry follows.
-- Multiroom zones are rejected, even if only one member is configured. Ungroup
-  using the Teufel app before selecting a room here.
-
-There is an unavoidable interval between a final state check and a network
-command reaching a speaker. Already-sent commands cannot be recalled. On an
-uncertain timeout the session is revoked, never retried automatically. These
-guards need real-device evaluation before claiming uninterrupted switching on
-every firmware. If a speaker refuses to leave Spotify mode, the command fails;
-the service does not escalate to repeated Stop/repair attempts.
-
-## Quality, updates and troubleshooting
-
-CD-quality FLAC is the default. Higher quality can be selected when your speaker
-supports it; the configured quality is a ceiling for app requests. Actual format
-support and high-resolution playback need hardware validation.
-
-```sh
-docker compose logs --tail 100
-docker compose pull
-docker compose up -d
-```
-
-Use a version tag or the published image digest for a fixed deployment. `latest`
-tracks releases; `sha-<commit>` identifies each published source revision.
-Rollback by changing the image tag and recreating the container with the same
-volume. Changing selected rooms or quality releases sessions: reselect in the
-Qobuz app afterward. After Spotify takes over, select another Qobuz target and
-then this room to establish a new session.
-
-If rooms are missing, check host networking, firewall, `LAN_ADDRESS` and optional
-`RAUMFELD_HOST`. If login says retrying, the saved token is retained while Qobuz
-is unreachable. If authentication is rejected, sign in again. Credentials, signed
-stream URLs and detailed upstream account logs are not exposed in setup status.
-
-Source labels such as Spotify do not make a room unavailable. Advertisement
-requires fresh physical/zone renderer observations and single-room topology.
-Setup explains observation and receiver startup failures. `LAN_ADDRESS` must be
-assigned to the Docker host, not to a speaker or another machine. See the
-[speaker availability diagnostic and review deployment guide](SPEAKER_AVAILABILITY.md).
-
-## Development and CI
-
-Node 24, Python 3.12–3.13, uv 0.8.22:
-
-```sh
-npm ci --ignore-scripts
-npm test
-npm run smoke
-uv sync --project qobuz --frozen --no-dev
-qobuz/.venv/bin/python -m unittest discover -s tests -p 'test_*.py'
-docker build -t raumfeld-connect:local .
-```
-
-CI tests the actual pinned upstream imports/player wiring, source protection,
-HTTP APIs, OAuth state handling, setup persistence and container startup/failure/
-shutdown. A main commit named `Release <version>` publishes multi-architecture
-images and creates a GitHub release only after validation passes. Bump package,
-Compose, UI and OCI version fields together for a new release; never reuse a
-released version for changed code.
-
-Runtime versions and integrity hashes are in `package-lock.json` and
-`qobuz/uv.lock`; Docker bases and actions are digest/commit pinned. Upstream Node
-still brings advisories in `request`, `ip`, `tough-cookie` and `uuid`. Reviewed
-`form-data` and `qs` overrides remove additional vulnerable versions without
-patching upstream source. These remaining advisories make trusted-LAN-only use
-especially important. Build backend dependencies follow upstream metadata, so
-byte-for-byte reproducibility is not claimed.
-
-See [architecture](ARCHITECTURE.md), [API](shared/README.md), and
-[release notes](CHANGELOG.md). MIT for this repository; dependencies retain
-their original licenses.
+The default `guarded` launcher and historical documents remain for comparison and
+rollback. They do not describe the current upstream-first preview. Existing CI and
+the older registry-release workflow have not been changed for this publication;
+this prerelease does not imply CI validation of the experiment or a merge to main.
+Legacy upstream Node advisories remain relevant to trusted-LAN-only deployment.
+See [changelog](CHANGELOG.md). MIT for this repository; upstream attribution and
+dependency licenses are retained.

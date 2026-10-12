@@ -1,59 +1,79 @@
-# Source checkpoint status
+# Working preview checkpoint — 2026-10-12
 
-## Before the observation-order fix
+**Working preview; seeking outstanding; not complete hardware acceptance.**
 
-- Hardware has previously confirmed audible Qobuz playback, retained connection,
-  pause/resume, discovery and authentication. This does not guarantee every handoff.
-- The room-specific volume candidate still produced a renderer-side connection
-  reset on hardware. Readback stayed unchanged; fresh source reconciliation retained
-  the session. A later Stop reset released it. That candidate was rolled back.
-- The previous playback-tested image is currently deployed and healthy. Its next
-  handoff released ownership on a physical unexpected-source observation during
-  loading. Playback on the phone continued; audible speaker playback was not confirmed.
-- Two characterization tests reproduce the ordering defect, including against
-  the unchanged earlier source checkpoint: physical-first observations and a
-  notification during loading revoke before Play; virtual-first succeeds.
-  The 70 passing Node tests at this checkpoint include these bug characterizations,
-  not a fix. Previous volume-candidate checks passed 36 Python tests, Docker build,
-  smoke and simulated integration tests; they are not hardware acceptance.
-- Silence remains independently unexplained. SOAP acknowledgement, reported
-  PLAYING, delivery of audio bytes and audible playback are different boundaries.
-- Manual next, natural completion, volume setter success and real Spotify takeover
-  remain unverified hardware behavior.
+Publication: `upstream-first-preview-2026-10-12` on
+`experiment/upstream-first-one-room`, not main. The tag resolves to the publication
+checkpoint; the deployed playback implementation is an earlier, exact revision:
+`560ee29e19e242fb336281823aa2caa36d9bcafc`. Subsequent commits record user tests
+and add publication documents/configuration, without changing playback behavior.
 
-This is a source-only checkpoint. Runtime configuration, credentials, `/data`, raw
-captures and private audit/rollback material are intentionally excluded. No image
-publication, deployment or release is authorized by this source checkpoint.
+Running amd64 image ID/config digest:
+`sha256:4baf7a4f6b3d480a00e8f8abe0f9711a8df3747cee2cbaa8368e0e01d528679f`.
+Local OCI index ID:
+`sha256:088c8afa865cf264b5b4be230aa8aaf070694ae8a77207d119c658fb67ae4c56`.
+These identify local/imported artifacts; neither is a published registry reference.
+The running image's 32 checked application/backport source files match `560ee29`.
+Dependencies/effective settings: [preview-checkpoint.json](preview-checkpoint.json).
 
-## Subsequent local fix
+## Working and hardware-verified
 
-The characterization tests have been converted to intended-result regressions.
-Exact forwarding can be incomplete during the bounded explicit initial handoff;
-Play requires fresh complete matching virtual and physical evidence. New tests
-cover deadline, stale/event-only evidence, contradictory sources, revocation and
-previous-selection callbacks. Bounded byte/SOAP/lookup diagnostics are prepared to
-identify a silence boundary on the next approved hardware test. See
-`HANDOFF_REVIEW.md`; source fixes are not hardware or audible acceptance.
+Recorded user tests on this image, one ungrouped Raumfeld room, Android Connect,
+configured CD quality, host networking:
 
-Validation: 79 Node and 44 Python tests; correlated simulated metadata/Node/SOAP/
-relay byte integration; Docker build, process smoke, Python compilation, Compose
-validation, isolated supervisor failure, imports, real discovery initialization
-and graceful shutdown. No candidate deployment or real-speaker mutation was run
-for this fix. Audible playback, repeated hardware handoffs, volume, manual next,
-natural completion and Spotify takeover still require the ordered hardware review.
+| Control | Evidence |
+| --- | --- |
+| Audible playback | User heard audio; connection steady |
+| Android Next | User heard new track; connection steady; item → Play trace completed Stop → URI → Play |
+| Pause/resume | User explicitly confirmed pressing Pause and Play works |
+| Natural advancement | User let queued track advance; following track audible; Android showed Pause |
+| App volume without jump-back | User explicitly confirmed stable changes |
+| Physical knobs / Android feedback | User answered yes to indicator following knob; stable volume |
 
-## Architecture-review checkpoint (next-track work paused)
+The user's assessment that everything except seeking works is consistent with
+these checked controls. It does not supply separate evidence for the features below.
 
-The deployed handoff-order candidate subsequently produced user-confirmed audible
-playback and retained control on initial selection. At natural advancement, the
-next URI load was acknowledged and its relay returned HTTP 200 FLAC with bytes
-written, but source confirmation failed before Play and ownership was released.
-Reconnect was rejected as a replay. This is not a successful track-completion test.
+## Known failure: seeking
 
-Pending same-lease bounded-load changes and natural-advance trace correlation are
-preserved here for comparison, not hardware acceptance or deployment. Latest local
-Node run: 82/83 passed; the old-callback expiry test rejected safely with
-`ownership_lost` rather than its expected `source_not_confirmed`. These changes
-remain work in progress. No new Python/image/hardware acceptance is claimed.
-Further custom-controller expansion is paused for direct-DLNA architecture review.
-The deployed image remains the previously approved handoff-order candidate.
+Mid-track scrub is rejected with definite renderer 710. Duplicate Seek transmission
+and optimistic upstream success are recorded. Fix is not included. No further
+seeking investigation or playback edits are part of this publication checkpoint.
+
+## Implemented but awaiting verification
+
+- Qobuz playback reporting/history and server-side linked Last.fm scrobbling:
+  **not yet separately verified**, explicitly deferred by user.
+- Idle/uninterrupted native Spotify: **not yet separately verified**.
+- Both source handoffs, Spotify → Qobuz and Qobuz → Spotify:
+  **not yet separately verified**, planned after seeking correction.
+- Exhausted-queue restart: **not yet separately verified** (upstream queue/player).
+- Hardware renderer disappearance/rebinding: **not yet separately verified**;
+  compatibility behavior has synthetic coverage.
+- Reverse Play → item Next ordering: synthetic pass, no same-image live confirmation.
+
+An outgoing state-send completion is not a playback-report HTTP acknowledgement.
+SOAP success, renderer PLAYING, delivered bytes, audible playback and account-visible
+scrobbles are distinct evidence. Previous-image/hybrid results do not establish
+acceptance of this image. Overall `hardwareVerified: false` remains appropriate.
+
+## Not implemented or intentionally unsupported in this preview
+
+- Grouped/multiroom operation and non-CD runtime configuration are rejected.
+- Gapless arming and upstream UI room mutations are disabled.
+- Automatic source reclamation, topology repair/drop/regroup and fallback transport
+  retries are intentionally disabled. No separate Spotify receiver is implemented
+  or required for native speaker Spotify.
+
+## Preservation and publication
+
+The current image is retained privately both locally and on the deployment host as
+a rollback. A fresh private checkpoint captures effective Compose, storage hashes
+and runtime state. Deployment, container identity, configuration and data stayed
+unchanged; no speaker controls were sent during checkpointing. Private state,
+account files, raw logs/captures and image backups are excluded from Git/GitHub.
+
+Source-only GitHub prerelease; **no downloadable preview container image or registry
+publication**. Older registry images are not this checkpoint. No merge to main,
+force-push, workflow edit or automatic deployment. See
+[setup/rollback](PREVIEW_SETUP.md), [sanitized Compose](docker-compose.preview.yml),
+[changelog](CHANGELOG.md) and [historical evidence](UPSTREAM_FIRST_EXPERIMENT.md).
