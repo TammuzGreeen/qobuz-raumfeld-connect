@@ -3,6 +3,10 @@
 **Working preview; seeking outstanding; not complete hardware acceptance.**
 
 Later seeking candidate work is described in [SEEK_REVIEW.md](SEEK_REVIEW.md).
+Current later deployment is the [all-room test](ALL_ROOMS_HANDOFF_REVIEW.md),
+`1df99d2`: six rooms discovered/advertised, fresh source reads pass; candidate
+hardware handoff/control tests remain pending. The paragraphs below preserve
+earlier-image evidence, not current-image acceptance.
 Candidate `361e46e` is now separately approved/deployed; paused-scrub silence and
 explicit resume from the chosen point pass the user hardware test, with steady
 connection. Previous `d58a5cd` passed playing

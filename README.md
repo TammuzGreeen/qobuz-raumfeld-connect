@@ -3,7 +3,8 @@
 **Current branch development:** [all-room handoff correction/test](ALL_ROOMS_HANDOFF_REVIEW.md)
 extends upstream-first to independent logical rooms and corrects cached Spotify
 evidence falsely revoking activation. The older tagged preview below is unchanged;
-new candidate hardware acceptance is incomplete.
+candidate `1df99d2` is deployed with all six supported rooms discovered/advertised.
+Per-room hardware handoff/control acceptance remains pending.
 
 Qobuz Connect for one ungrouped Raumfeld room, with native Spotify source protection.
 This branch contains a **working hardware-tested preview with seeking outstanding**,

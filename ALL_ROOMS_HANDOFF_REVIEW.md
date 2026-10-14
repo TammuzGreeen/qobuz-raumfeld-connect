@@ -82,6 +82,12 @@ exact limitation and not silently split or regrouped.
 | room_05 | No | 8794 | 8894 | Pending |
 | room_06 | No | 8795 | 8895 | Pending |
 
+On the deployed candidate, **all six** have physical discovery, successful fresh
+source/transport reads, working discovery HTTP/audio listeners and observed mDNS
+advertisements. No grouped, offline or unsupported rooms are currently present.
+These are readiness checks only; every row's audible/control/handoff result remains
+pending on this exact image.
+
 Real configuration and alias mapping are private. `examples/all-rooms-test.json`
 contains placeholders only. All-room availability does not authorize simultaneous
 household playback. Startup/poll/reconnect cannot create every zone; zones are
@@ -136,3 +142,46 @@ One exploratory run encountered an existing guarded short-deadline assertion
 variance (`ownership_lost` instead of `source_not_confirmed`); the complete final
 serial suite passed without weakening that test. No candidate hardware/control
 pass is inferred from these offline results. Deployment outcome is recorded below.
+
+## Authorized all-room deployment — hardware acceptance pending
+
+`1df99d269ecd1d44e2f6759e2ae5227ad20a02a3` is deployed as
+`raumfeld-connect:upstream-first-all-rooms-review`. Imported Docker image ID/config
+digest is `sha256:e11255790134dc6018265cb308df3e60b4dd7274a0ace193a25973bdb0efc9d9`,
+distinct from the local OCI index above. Archive checksum matched. Source/tests/
+synthetic examples/docs were privacy-reviewed and pushed normally to
+`experiment/upstream-first-one-room`, with remote SHA verification. Main and the
+existing preview tag were not changed; no registry image/release replacement.
+
+Retained private effective Compose/runtime/config before-state, a complete `/data`
+archive and current `d3c3a78` image archive; original working `560ee29` preview
+rollback remains available. Added all six supported logical rooms to private
+config.json, preserving original room identity/name/ports and every other setting.
+New ports were checked against live listeners before update. Performed one app
+image/pull-policy update without retry, preserving environment, mounts, host
+networking, credentials/optional token cache and unrelated running containers.
+All logical room membership is unchanged; no grouped room or stereo pair was split.
+
+Verified healthy/authenticated, zero restarts, six configured speakers, six mDNS
+registrations and independent LAN browse observation of all six stable UUID/port
+advertisements. Discovery HTTP and audio listeners respond for each room; each
+physical renderer is discovered and each room's fresh read-only source confirmation
+succeeds. Startup sent **zero zone-creation or transport commands**; assigned/
+unassigned topology stayed unchanged. Diagnostic verification subsequently issued
+only source/transport reads, not agent speaker-changing controls. Installed player
+and pinned SDK adaptation hashes matched expected values.
+
+Per-room handoff/audibility/controls remain pending. Existing hardware passes belong
+to earlier exact images and are not copied onto this candidate. Start with room_01
+(the original failing room), then remaining rooms one at a time. Full
+`hardwareVerified: false`; source-release diagnostics will distinguish the next
+observed trigger rather than retroactively asserting an uncaptured live event.
+
+For rollback to current seeking-capable `d3c3a78`, stop the test app, restore only
+saved private config.json to its original one-room selection, then restore saved
+Compose referencing `raumfeld-connect:upstream-first-renderer-manager-review` with
+`pull_policy: never` via app.update. Retain credentials/newer token cache; do not
+blindly overwrite the whole volume. The complete backup is disaster recovery, not
+an automatic rollback restore. For the original preview use its separately saved
+Compose and `raumfeld-connect:upstream-first-partial-state-review`. No transport
+retries, force pushes or tag changes are involved.

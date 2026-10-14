@@ -1085,3 +1085,25 @@ rejected. Six-room offline smoke sends no creation/transport commands. Built ima
 passed 188 Python tests, 117 serial Node, 34 packaged Node boundary tests and six
 original upstream serialization tests. See ALL_ROOMS_HANDOFF_REVIEW.md for source/
 image identity, evidence limits and pending user-operated per-room hardware plan.
+
+## Authorized all-room candidate deployment and readiness verification
+
+Deployed `1df99d269ecd1d44e2f6759e2ae5227ad20a02a3` as
+`raumfeld-connect:upstream-first-all-rooms-review`; imported ID/config digest
+`sha256:e11255790134dc6018265cb308df3e60b4dd7274a0ace193a25973bdb0efc9d9`.
+Private archive checksum matched. Fresh private before-state/Compose/full persistent
+storage backup and current `d3c3a78` rollback archive retained with original preview.
+User-authorized private config now includes all six ungrouped supported logical
+rooms, original selected-room identity/name/ports unchanged. New ports verified
+free. One image/pull-policy update, no retry; credentials/cache/env/mounts/host network,
+logical room membership and unrelated apps preserved. Player/SDK hashes verified.
+
+Healthy/authenticated, zero restarts, six speaker configs/mDNS registrations,
+all six advertisements independently observed over LAN. Each physical renderer
+discovered, discovery HTTP/audio listener available and fresh source/transport
+read successful. No grouped/offline/unsupported rooms currently present. Zero
+startup zone-creation/transport commands, unchanged assigned/unassigned topology;
+verification uses read-only source requests, no agent speaker-changing controls.
+Source/test/config-example/docs privacy-reviewed and pushed with remote verification;
+main/tag untouched. Every candidate per-room audible/control/handoff hardware check
+remains pending. See ALL_ROOMS_HANDOFF_REVIEW.md for plan and private rollback steps.
