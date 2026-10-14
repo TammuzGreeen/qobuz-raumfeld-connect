@@ -49,7 +49,7 @@ class RendererRequestError(EndpointUnavailable):
     def __init__(self, status, detail):
         codes = {'room_not_configured', 'topology_unavailable', 'room_unavailable',
                  'grouped_room_not_supported', 'creation_pending_or_uncertain',
-                 'topology_changed', 'renderer_request_failed'}
+                 'topology_changed', 'renderer_manager_unavailable', 'renderer_request_failed'}
         origins = {'local_check', 'raumfeld_response', 'network', 'deadline', 'library_unknown'}
         phases = {'preflight', 'uncertainty_block', 'postflight', 'response', 'network', 'timeout', 'library'}
         networks = {'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH', 'ENOTFOUND'}

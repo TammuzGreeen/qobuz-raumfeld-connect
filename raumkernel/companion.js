@@ -88,6 +88,8 @@ class Companion {
     const room = this.room(roomId);
     // Assigned but missing renderer: never drop, recreate or regroup it.
     if (room.zoneId) return this.lookup(roomId);
+    const manager = this.observer.kernel?.managerDisposer?.zoneManager;
+    if (typeof manager?.connectRoomToZone !== 'function') this.fail('renderer_manager_unavailable');
     if (this.pending.has(roomId) || this.uncertain.has(roomId)) this.fail('creation_pending_or_uncertain',
       {phase: 'uncertainty_block'});
     this.pending.add(roomId);
@@ -98,7 +100,7 @@ class Companion {
     try {
       // No await separates the fresh topology check above from this one mutation.
       this.trace('library_call');
-      await deadline(this.observer.kernel.getManager().zoneManager.connectRoomToZone(roomId, ''), this.timeoutMs,
+      await deadline(manager.connectRoomToZone(roomId, ''), this.timeoutMs,
         Object.assign(new Error('renderer_request_timeout'), {origin: 'deadline', phase: 'timeout'}));
       acknowledged = true;
       this.trace('acknowledged', {origin: 'raumfeld_response'});
@@ -121,7 +123,7 @@ class Companion {
 }
 
 const localErrors = new Set(['room_not_configured', 'topology_unavailable', 'room_unavailable',
-  'grouped_room_not_supported', 'creation_pending_or_uncertain', 'topology_changed']);
+  'grouped_room_not_supported', 'creation_pending_or_uncertain', 'topology_changed', 'renderer_manager_unavailable']);
 const origins = new Set(['local_check', 'raumfeld_response', 'network', 'deadline', 'library_unknown']);
 const phases = new Set(['preflight', 'uncertainty_block', 'postflight', 'response', 'network', 'timeout', 'library']);
 const networkCodes = new Set(['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH', 'ENOTFOUND']);

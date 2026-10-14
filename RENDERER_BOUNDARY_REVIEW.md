@@ -1,5 +1,9 @@
 # Explicit renderer-request boundary review
 
+**Current diagnosis:** the companion used an API absent from the pinned library
+(`kernel.getManager()`), so explicit renderer demand failed locally before any
+Raumfeld creation request. The correction below is prepared, not deployed.
+
 ## Recorded hardware outcome — 2026-10-14
 
 On deployed `361e46e`, user let Spotify play, selected the same room in Qobuz and
@@ -125,3 +129,40 @@ membership and unrelated containers. Installed player unchanged and SDK adaptati
 hash verified. Zero startup transport/provisioning transmissions; no agent speaker
 controls. New user-requested takeover evidence pending; no handoff success or
 underlying cause is claimed. Published preview/tag untouched, `hardwareVerified: false`.
+
+## Fresh takeover capture and exact call-boundary defect
+
+On diagnostic `29c020d`, user tried Qobuz while Spotify played. Qobuz failed and
+Spotify continued. Companion trace reached `library_call`, then immediately failed
+as `library_unknown` with companion 409 and no renderer HTTP status/network code.
+Subsequent demands were local `uncertainty_block`, requestAttempted false. These
+are not successful handoffs or proven Spotify/firmware rejection.
+
+An isolated inspection of the **actual pinned runtime library** confirms
+`typeof kernel.getManager === 'undefined'`. Its init constructs
+`kernel.managerDisposer`, whose `zoneManager.connectRoomToZone` is the real method.
+Our companion called `kernel.getManager().zoneManager.connectRoomToZone(...)`, so
+it raised locally before invoking the SDK's request method. The diagnostic SDK
+error adapter was never reached. This identifies the exact integration defect;
+there was no Raumfeld response to this call to attribute the failure to. The
+subsequent uncertainty latch was conservatively set by our pre-call code and catch.
+
+Earlier mocks invented `getManager` and hid the API mismatch. The new regression
+constructs the real pinned Raumkernel/ManagerDisposer/zone manager without starting
+network/discovery and replaces only the creation operation. It verifies the real
+API shape rather than perpetuating the mock-only method.
+
+Correction uses `kernel.managerDisposer.zoneManager`, validating the method before
+setting pending/uncertain state. Missing manager now reports local preflight
+`renderer_manager_unavailable` without transmission or uncertainty latch. Actual
+attempts retain existing one-call behavior, uncertainty blocking, host/membership
+checks and explicit-selection authority; there is no fallback method or retry.
+Assigned-room playback and installed player/seek patches remain unchanged.
+
+User said manually pausing Spotify before explicit Qobuz selection + Play is an
+acceptable policy. That does not establish that firmware requires it. On current
+`29c020d`, pausing Spotify cannot cure this API defect or the existing uncertainty
+block, so user was asked not to retry. No uncertainty state was cleared on the
+live process and no speaker controls or new deployment were performed. A separately
+approved corrected deployment and fresh user test remain necessary. Spotify
+continuation confirms this failed attempt did not interrupt it—nothing more.

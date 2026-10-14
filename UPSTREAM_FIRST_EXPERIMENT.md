@@ -1011,3 +1011,22 @@ No startup transport/provisioning transmissions, no agent speaker controls.
 User instructed to perform one Spotify-playing → explicit Qobuz selection + Play.
 Outcome pending; handoff remains unaccepted, `hardwareVerified: false`, preview
 tag unchanged and scrobbling deferred.
+
+## Exact renderer-boundary defect identified on diagnostic image
+
+User reported Qobuz still failed while Spotify continued and proposed manual
+Spotify Pause before Qobuz as acceptable. Capture on `29c020d`: explicit demand
+reached library_call, failed as library_unknown; subsequent demands hit our local
+uncertainty block. Actual pinned SDK inspected offline: `kernel.getManager` is
+undefined; init exposes `kernel.managerDisposer.zoneManager.connectRoomToZone`.
+Our companion used the nonexistent getManager method and therefore failed before
+any Raumfeld creation request. Earlier mocks invented that API and missed the bug.
+This is our integration failure, not evidence that Spotify/firmware blocked it.
+Background subscription refusals remain distinct.
+
+Prepared correction uses the real manager path and validates it before setting
+mutation uncertainty; actual attempts remain single-call and uncertain failures
+remain terminal. Real pinned SDK-shape regression added, no fallback API or player/
+seek changes. Manual Spotify pause is accepted as a future test policy, not proven
+necessary. User advised not to retry the current defective/blocked deployment.
+No new deployment or agent speaker controls; separate correction approval needed.
