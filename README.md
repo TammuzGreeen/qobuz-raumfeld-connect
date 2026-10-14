@@ -10,7 +10,7 @@ paused-scrub silence and explicit resume from the selected point now pass the us
 hardware test, with steady connection. Previous
 `d58a5cd` passed playing scrubbing but auto-resumed during paused scrubbing.
 Spotify → Qobuz handoff failed before renderer/audio start; Spotify kept playing.
-[Boundary trace and undeployed diagnostic correction](RENDERER_BOUNDARY_REVIEW.md)
+[Boundary trace and approved diagnostic deployment](RENDERER_BOUNDARY_REVIEW.md)
 distinguish background maintenance from explicit takeover without claiming its
 discarded response is recoverable.
 Broader acceptance remains incomplete. Image/acceptance details

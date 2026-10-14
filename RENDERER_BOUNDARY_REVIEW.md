@@ -110,3 +110,18 @@ retry. A new approved diagnostic deployment/test is required to capture the exac
 origin/status of a fresh explicitly requested takeover; the old response cannot
 be reconstructed. The failed handoff remains failed, Spotify continuation is only
 non-interruption evidence, and known working Qobuz playback/rollback are preserved.
+
+## Approved diagnostic deployment — new takeover capture pending
+
+User separately approved diagnostic deployment and a fresh explicit takeover test.
+`29c020decab022d9526a25b699be1831bfc26807` now runs as
+`raumfeld-connect:upstream-first-renderer-boundary-review`; imported image ID/config
+digest is `sha256:72a17422fa93f74943c397d6ac2138b66d3348c40415cb9995fb75a12f831625`.
+Archive checksum matched. Fresh private before-state and current `361e46e` rollback
+archive retained, alongside original working-preview rollback. One image/pull-policy-
+only app update, no retry. Healthy/authenticated, zero restarts, unchanged config/
+credentials/optional cache state, environment/mounts/host networking, room identity/
+membership and unrelated containers. Installed player unchanged and SDK adaptation
+hash verified. Zero startup transport/provisioning transmissions; no agent speaker
+controls. New user-requested takeover evidence pending; no handoff success or
+underlying cause is claimed. Published preview/tag untouched, `hardwareVerified: false`.

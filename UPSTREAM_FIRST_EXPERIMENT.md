@@ -996,3 +996,18 @@ Private archive retained; image identities and limitations in
 `RENDERER_BOUNDARY_REVIEW.md`. Not deployed or hardware-verified; current deployment
 unchanged. Error visibility is repaired, underlying handoff cause/fix not proven.
 Separate approval required for diagnostic deployment/new user-requested takeover.
+
+## Approved renderer-boundary diagnostic deployment
+
+User approved deploying `29c020decab022d9526a25b699be1831bfc26807` for one fresh
+explicit user takeover capture. Imported ID/config digest:
+`sha256:72a17422fa93f74943c397d6ac2138b66d3348c40415cb9995fb75a12f831625`.
+Checksum verified; fresh private before-state/Compose and `361e46e` rollback archive
+retained with original preview rollback. Image/pull-policy-only app update, once,
+no retry. Healthy/authenticated, zero restarts, unchanged credentials/config/optional
+cache state/environment/mounts/host network, same room/membership and unrelated
+containers. Player byte hash unchanged, exact SDK error adaptation verified.
+No startup transport/provisioning transmissions, no agent speaker controls.
+User instructed to perform one Spotify-playing → explicit Qobuz selection + Play.
+Outcome pending; handoff remains unaccepted, `hardwareVerified: false`, preview
+tag unchanged and scrobbling deferred.
