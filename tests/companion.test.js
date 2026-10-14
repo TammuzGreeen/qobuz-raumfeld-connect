@@ -188,3 +188,35 @@ test('background catalogs, observations and Spotify evidence never request a ren
   assert.equal(f.calls.length, 0);
   assert.equal(diagnostics.length, 0);
 });
+
+test('deadline and post-ack topology rejection retain different phases without repair', async () => {
+  const timeout = fixture();
+  timeout.observer.kernel.getManager = () => ({zoneManager: {connectRoomToZone: (...args) => {
+    timeout.calls.push(args); return new Promise(() => {});
+  }}});
+  await assert.rejects(timeout.companion.createForPlay('synthetic-room'), error => {
+    assert.equal(error.origin, 'deadline');
+    assert.equal(error.phase, 'timeout');
+    assert.equal(error.requestAttempted, 'unknown');
+    return true;
+  });
+  await assert.rejects(timeout.companion.createForPlay('synthetic-room'), error => {
+    assert.equal(error.phase, 'uncertainty_block');
+    assert.equal(error.requestAttempted, false);
+    return true;
+  });
+  assert.equal(timeout.calls.length, 1);
+  const changed = fixture();
+  changed.observer.kernel.getManager = () => ({zoneManager: {connectRoomToZone: async (...args) => {
+    changed.calls.push(args);
+    changed.store.hostFound('changed-synthetic-host');
+    changed.topology(false);
+  }}});
+  await assert.rejects(changed.companion.createForPlay('synthetic-room'), error => {
+    assert.equal(error.origin, 'local_check');
+    assert.equal(error.phase, 'postflight');
+    assert.equal(error.requestAttempted, true);
+    return true;
+  });
+  assert.equal(changed.calls.length, 1);
+});

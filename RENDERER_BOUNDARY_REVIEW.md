@@ -89,3 +89,24 @@ is required for deployment and a new controlled user-requested takeover; first
 inspect local-check versus actual Raumfeld response evidence before choosing a
 behavioral correction. Preserve working Qobuz playback and all rollback images.
 Overall `hardwareVerified: false`; scrobbling deferred; immutable preview untouched.
+
+## Prepared image and regression results — not deployed
+
+- Implementation: `29c020decab022d9526a25b699be1831bfc26807`.
+- Local amd64 image: `raumfeld-connect:upstream-first-renderer-boundary-review`.
+- Local OCI index:
+  `sha256:04180facc96bd77a5b875833173d036f0cd2cf5619e58aedc9e6076165919a90`.
+- Private exported archive SHA-256:
+  `e300a2d5cb324a02d9a4d51545acb4bb21921f42b23ad4da51a43260106145ce`.
+- Built candidate passed 182 Python tests (172 project + ten standalone), offline
+  supervisor/UI/health/storage/shutdown smoke, six original upstream serialization
+  tests and 14 packaged Node boundary tests. Full serial development Node suite
+  passed 110 tests, including the additional timeout/postflight-phase regression.
+- Exact SDK adaptation output hash verified; installed upstream player hash equals
+  deployed `361e46e`, preserving all three player patches unchanged.
+
+No deployment, registry publication, agent speaker control or uncertain-request
+retry. A new approved diagnostic deployment/test is required to capture the exact
+origin/status of a fresh explicitly requested takeover; the old response cannot
+be reconstructed. The failed handoff remains failed, Spotify continuation is only
+non-interruption evidence, and known working Qobuz playback/rollback are preserved.

@@ -969,3 +969,30 @@ retry or deployment change. Private raw logs retained. Spotify continuation outc
 awaits clarification; reverse handoff not tested. Current paused-seek pass remains
 recorded; Spotify → Qobuz acceptance failed, full `hardwareVerified: false`,
 scrobbling deferred, preview/tag/rollback preserved. See `SEEK_REVIEW.md`.
+
+## Renderer-request boundary trace and undeployed diagnostic correction
+
+User confirmed Spotify continued playing throughout the failed takeover, then
+requested exact renderer-error attribution, background/explicit-demand separation
+and preservation of working Qobuz playback. Recorded subscription ECONNREFUSED
+entries belong to background maintenance, not the explicit creation request. The
+old POST's exact status/body was discarded across Python/companion/SDK boundaries,
+so our check versus Raumfeld response cannot be determined retrospectively. No
+mutating request was repeated to recover missing evidence. Spotify continuation
+is non-interruption evidence, not handoff success.
+
+Candidate `29c020decab022d9526a25b699be1831bfc26807` repairs categorical error
+fidelity with bounded Python response parsing, explicit-only companion traces and
+a hash-checked pinned SDK creation-error adaptation. Local preflight/uncertainty
+block, remote HTTP status, network code, deadline and post-ack topology denial are
+distinct. No retry, source guard relaxation, regroup or player/seek modification.
+The SDK change is scoped to creation error paths; background subscriptions and
+successful-request behavior are unchanged. Installed player hash matches `361e46e`.
+
+Built local image `raumfeld-connect:upstream-first-renderer-boundary-review` passed
+182 Python tests, 14 packaged Node boundary tests and offline smoke. Full serial
+Node suite passed 110 tests and six original upstream serialization tests passed.
+Private archive retained; image identities and limitations in
+`RENDERER_BOUNDARY_REVIEW.md`. Not deployed or hardware-verified; current deployment
+unchanged. Error visibility is repaired, underlying handoff cause/fix not proven.
+Separate approval required for diagnostic deployment/new user-requested takeover.
