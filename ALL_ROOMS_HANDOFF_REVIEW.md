@@ -117,3 +117,22 @@ blindly retry uncertain transport/provisioning requests. Verify auth, original r
 identity, networking and unrelated apps. The image's pinned player hashes distinguish
 the current seeking-capable rollback from the older published preview. No merge to
 main or existing release-tag replacement is part of this test.
+
+## Prepared candidate identities and checks
+
+- Playback source revision: `1df99d269ecd1d44e2f6759e2ae5227ad20a02a3`.
+- Local amd64 tag: `raumfeld-connect:upstream-first-all-rooms-review`.
+- Local OCI index:
+  `sha256:ab7e774653019d63aa5f372b4e78a0e6d45e4fd8b6e33aa434ac8eed6a0fbbcf`.
+- Private export SHA-256:
+  `a12338f4aa233f946c12c373d7cd23721b860422257147bdb04e9adc2fe6bf49`.
+- 188 Python tests (178 project + ten standalone), 117 serial Node tests,
+  34 packaged Node boundary/observation tests, six original upstream serialization
+  tests and six-room offline supervisor/UI/health/storage/shutdown smoke passed.
+- Installed player SHA-256 equals current seeking-capable deployment, unchanged:
+  `7bc008e7b3251456c4c55fb2f8bd7ab45a0b5b44fce243f64e05b4b0ee598b91`.
+
+One exploratory run encountered an existing guarded short-deadline assertion
+variance (`ownership_lost` instead of `source_not_confirmed`); the complete final
+serial suite passed without weakening that test. No candidate hardware/control
+pass is inferred from these offline results. Deployment outcome is recorded below.

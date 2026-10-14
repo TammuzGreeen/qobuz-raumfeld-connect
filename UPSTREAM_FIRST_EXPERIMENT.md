@@ -1064,3 +1064,24 @@ proven. Need distinguish fresh takeover from existing paused-source re-observati
 no blanket source-guard relaxation. No agent controls/deployment change, no retry
 or drop/recreate. Phone fallback user-observed; full hardwareVerified false,
 reverse handoff untested, scrobbling deferred. See RENDERER_BOUNDARY_REVIEW.md.
+
+## All-room source-evidence correction prepared with explicit authorization
+
+User authorized implementation, all supported rooms, test deployment and GitHub
+push without main merge/tag replacement. Read-only inventory found six ungrouped
+logical rooms. Private topology/identity mapping retained, no household identifiers
+in public docs/config examples. Candidate
+`1df99d269ecd1d44e2f6759e2ae5227ad20a02a3` replaces cached-event Spotify counter
+inflation with deduplicated complete-read transitions and pre-URI fresh physical
+source confirmation. Initial paused-source/virtual projections do not release
+Qobuz; genuine fresh subsequent Spotify still cancels. Physical markers after start
+are correlated with actual virtual URI. Every release path retains source safety
+and categorical tracing through session deactivation. No player/seek patch change.
+
+Actual Node companion → upstream Speaker replay reproduces the old failure chain
+and passes corrected code plus later genuine takeover. Per-room factory/Ws binding,
+queue/session/backend identity and operation contexts isolated; port collisions
+rejected. Six-room offline smoke sends no creation/transport commands. Built image
+passed 188 Python tests, 117 serial Node, 34 packaged Node boundary tests and six
+original upstream serialization tests. See ALL_ROOMS_HANDOFF_REVIEW.md for source/
+image identity, evidence limits and pending user-operated per-room hardware plan.
