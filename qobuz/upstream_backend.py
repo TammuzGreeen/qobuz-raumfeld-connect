@@ -49,7 +49,7 @@ class RendererRequestError(EndpointUnavailable):
     def __init__(self, status, detail):
         codes = {'room_not_configured', 'topology_unavailable', 'room_unavailable',
                  'grouped_room_not_supported', 'creation_pending_or_uncertain',
-                 'topology_changed', 'renderer_manager_unavailable', 'renderer_request_failed'}
+                 'topology_changed', 'renderer_manager_unavailable', 'source_confirmation_unavailable', 'renderer_request_failed'}
         origins = {'local_check', 'raumfeld_response', 'network', 'deadline', 'library_unknown'}
         phases = {'preflight', 'uncertainty_block', 'postflight', 'response', 'network', 'timeout', 'library'}
         networks = {'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH', 'ENOTFOUND'}
@@ -83,7 +83,7 @@ class CompanionClient:
         async with self.session.request(method, self.base + path, json=body,
                 headers={'Authorization': 'Bearer ' + self.token}, allow_redirects=False) as response:
             if response.status != 200:
-                if method == 'POST' and path == '/v1/zone-for-play':
+                if method == 'POST' and path in {'/v1/zone-for-play', '/v1/source-snapshot'}:
                     # Preserve only allowlisted categorical error fields. Never
                     # repeat a mutating request to obtain a missing response.
                     detail = {}
@@ -127,6 +127,9 @@ class CompanionClient:
 
     async def create_for_play(self, room_id):
         return await self.request('POST', '/v1/zone-for-play', {'roomId': room_id})
+
+    async def confirm_sources(self, room_id):
+        return await self.request('POST', '/v1/source-snapshot', {'roomId': room_id})
 
     async def close(self):
         if self.session:
@@ -203,7 +206,7 @@ class RoomDLNAClient(DLNAClient):
                     # transport/source mutation. Preserve upstream's false Seek
                     # result; never retry or substitute a transport command.
                     return result
-                await self.backend.release_source()
+                await self.backend.release_source('mutation_failed_or_uncertain')
                 raise EndpointUnavailable('mutation_failed_or_uncertain')
         return result
 
@@ -316,6 +319,8 @@ class DeferredRoomBackend(DLNABackend):
         self.last_row = None
         self.membership = None
         self.last_renderer_id = None
+        self.diagnostic_alias = 'room_01'
+        self.creation_outstanding = False
 
     async def connect(self):
         # Speaker may advertise before any virtual renderer exists. No zone
@@ -351,7 +356,7 @@ class DeferredRoomBackend(DLNABackend):
             # an old task simply because it registers a command late.
             current = self.capture_operation()
             operation.set((captured[0] if captured else current[0], generation,
-                           captured[2] if captured else current[2]))
+                           captured[2] if captured else current[2], captured[3] if captured else current[3]))
             return generation
         player._next_generation = next_generation
         original_apply = player.apply_remote_state
@@ -369,7 +374,7 @@ class DeferredRoomBackend(DLNABackend):
         async def atomic_apply(**kwargs):
             captured = operation.get() or self.capture_operation()
             generation = kwargs.get('generation', captured[1])
-            token = operation.set((captured[0], generation, captured[2]))
+            token = operation.set((captured[0], generation, captured[2], captured[3]))
             try:
                 self.check_operation()
                 return await original_atomic_apply(**kwargs)
@@ -396,7 +401,7 @@ class DeferredRoomBackend(DLNABackend):
 
     def capture_operation(self):
         return (self.selection_generation, self.player._command_generation if self.player else None,
-                self.authority_reader() if self.authority_reader else None)
+                self.authority_reader() if self.authority_reader else None, id(self))
 
     def bind_authority(self, reader):
         self.authority_reader = reader
@@ -406,7 +411,7 @@ class DeferredRoomBackend(DLNABackend):
         current = self.capture_operation()
         inactive = self.authority_reader and (current[2] is None or not current[2][1])
         superseded = captured is not None and (
-            captured[0] != current[0] or captured[2] != current[2])
+            captured[0] != current[0] or captured[2] != current[2] or captured[3:] != current[3:])
         if self.closed or self._external_playback or inactive or superseded:
             logger.warning('Rejected playback generation: selectionChanged=%s authorityChanged=%s '
                            'commandSuperseded=%s inactive=%s',
@@ -416,7 +421,16 @@ class DeferredRoomBackend(DLNABackend):
                            bool(inactive))
             raise EndpointUnavailable('stale_upstream_command')
 
-    async def release_source(self):
+    async def release_source(self, reason='external_source'):
+        diagnostics = getattr(self, 'diagnostics', None)
+        if diagnostics:
+            evidence = (self.last_row or {}).get('spotifyEvidence') or {}
+            diagnostics.emit('source_release', reason=reason, selectionPending=self.selection_pending,
+                creationOutstanding=self.creation_outstanding, alreadyReleased=self._external_playback,
+                evidenceOrigin=evidence.get('origin', 'unknown'), evidenceFreshness=evidence.get('freshness', 'unknown'),
+                evidenceSource=evidence.get('source', 'unknown'), evidenceTransport=evidence.get('transport', 'unknown'),
+                evidenceKind=evidence.get('kind', 'unknown'), evidenceReadOrigin=evidence.get('readOrigin', 'unknown'),
+                evidenceSourceRead=evidence.get('sourceRead', 'unknown'))
         if self._external_playback:
             return
         self._external_playback = True
@@ -427,6 +441,8 @@ class DeferredRoomBackend(DLNABackend):
             self.player.invalidate_pending_commands()
         if self._on_external_playback:
             await self._on_external_playback()  # Stock Speaker clears cloud session.
+            if diagnostics:
+                diagnostics.emit('source_session_deactivated', reason=reason)
 
     async def refresh(self):
         self.refresh_sequence += 1
@@ -449,8 +465,18 @@ class DeferredRoomBackend(DLNABackend):
         membership = tuple(row['rendererIds'])
         changed = self.membership is not None and membership != self.membership
         self.membership = membership
-        if changed or (previous is not None and version != previous):
-            await self.release_source()
+        if changed:
+            await self.release_source('physical_membership_changed')
+        elif previous is not None and version != previous:
+            evidence = row.get('spotifyEvidence') or {}
+            # A physical renderer can retain Spotify markers while the virtual
+            # renderer is demonstrably serving our URI. Query actual transport,
+            # not event receipt times, before classifying that as a takeover.
+            still_ours = (evidence.get('kind') == 'physical' and not self.selection_pending
+                and not self._starting_playback and self._current_proxy_url
+                and await self.virtual_matches(self._current_proxy_url))
+            if not still_ours:
+                await self.release_source('fresh_spotify_transition')
         if sequence < self.applied_sequence:
             return self.last_row
         endpoint = Endpoint.parse(self.room_id, row['endpoint']) if row.get('endpoint') else None
@@ -459,7 +485,7 @@ class DeferredRoomBackend(DLNABackend):
         if endpoint:
             self.last_renderer_id = endpoint.renderer_id
         if replaced:
-            await self.release_source()
+            await self.release_source('renderer_identity_changed')
         if sequence < self.applied_sequence:
             return self.last_row
         await self.rebind(endpoint)
@@ -541,12 +567,16 @@ class DeferredRoomBackend(DLNABackend):
             if not row['assigned']:
                 if not self.selection_pending:
                     raise EndpointUnavailable('explicit_play_required')
-                await self.companion.create_for_play(self.room_id)
-                deadline = asyncio.get_running_loop().time() + 8
-                while not self._client and asyncio.get_running_loop().time() < deadline:
-                    await asyncio.sleep(.2)
-                    await self.refresh()
-                    self.check_operation()
+                self.creation_outstanding = True
+                try:
+                    await self.companion.create_for_play(self.room_id)
+                    deadline = asyncio.get_running_loop().time() + 8
+                    while not self._client and asyncio.get_running_loop().time() < deadline:
+                        await asyncio.sleep(.2)
+                        await self.refresh()
+                        self.check_operation()
+                finally:
+                    self.creation_outstanding = False
             if not self._client:
                 raise EndpointUnavailable('renderer_unavailable')
             if not self.selection_pending and not await self._owns_transport():
@@ -575,6 +605,11 @@ class DeferredRoomBackend(DLNABackend):
         if client is not self._client or client.retired or client.epoch != self.epoch:
             raise EndpointUnavailable('retired_endpoint')
         if action == 'SetAVTransportURI':
+            # Complete read-only physical evidence immediately before explicit
+            # URI replacement, so cached hints cannot authorize or mask takeover.
+            await self.companion.confirm_sources(self.room_id)
+            await self.refresh()
+            self.check_operation()
             # Upstream suspends ownership polling during its load sequence. For
             # ordinary next-track loads verify the previous virtual URI directly.
             expected = self._current_proxy_url
@@ -582,7 +617,7 @@ class DeferredRoomBackend(DLNABackend):
             if not self.selection_pending and (not expected or self.loading_previous_uri != expected
                                                or expected != self._current_proxy_url):
                 if self.loading_previous_uri:
-                    await self.release_source()
+                    await self.release_source('unexpected_uri_during_load')
                 raise EndpointUnavailable('external_source')
         elif self._starting_playback and action == 'Play':
             # URI loading has a single bounded read-only confirmation window.
@@ -592,7 +627,7 @@ class DeferredRoomBackend(DLNABackend):
                 if uri == self.loading_uri:
                     break
                 if uri and uri != self.loading_previous_uri:
-                    await self.release_source()
+                    await self.release_source('unexpected_uri_during_load')
                     raise EndpointUnavailable('external_source_during_load')
                 self.check_operation()
                 if asyncio.get_running_loop().time() >= deadline:
@@ -632,7 +667,7 @@ class DeferredRoomBackend(DLNABackend):
         if uri == expected:
             return True
         if uri:
-            await self.release_source()
+            await self.release_source('virtual_uri_changed')
         return False
 
     async def get_state(self):
@@ -666,7 +701,7 @@ class DeferredRoomBackend(DLNABackend):
         observed = await self._client.get_volume() if self._client else None
         self.check_operation()
         if observed != max(0, min(100, level)):
-            await self.release_source()
+            await self.release_source('volume_not_confirmed')
             raise EndpointUnavailable('volume_not_confirmed')
 
     async def reconcile_volume(self):

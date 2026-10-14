@@ -1,5 +1,10 @@
 # Raumfeld Connect — upstream-first working preview
 
+**Current branch development:** [all-room handoff correction/test](ALL_ROOMS_HANDOFF_REVIEW.md)
+extends upstream-first to independent logical rooms and corrects cached Spotify
+evidence falsely revoking activation. The older tagged preview below is unchanged;
+new candidate hardware acceptance is incomplete.
+
 Qobuz Connect for one ungrouped Raumfeld room, with native Spotify source protection.
 This branch contains a **working hardware-tested preview with seeking outstanding**,
 not a fully accepted release. The running deployment is unchanged by publication.

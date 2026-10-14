@@ -18,7 +18,7 @@ async function sourceInfo(device, fetchImpl, timeoutMs) {
   try {
     const media = await device.callAction('AVTransport', 'GetMediaInfo', {InstanceID: 0});
     if (typeof media?.CurrentURI !== 'string') throw new Error('Missing source URI');
-    return {AVTransportURI: media.CurrentURI};
+    return {AVTransportURI: media.CurrentURI, sourceRead: 'media_info'};
   } catch (error) {
     // Raumfeld physical renderers do not implement GetMediaInfo. Their position
     // response also omits TrackURI. Never substitute cached event data: query a
@@ -48,7 +48,7 @@ async function sourceInfo(device, fetchImpl, timeoutMs) {
     const instance = matches.length === 1 ? matches[0] : null;
     const uri = instance?.AVTransportURI?.[0]?.$?.val;
     if (typeof uri !== 'string' || instance.AVTransportURI.length !== 1) throw new Error('Missing source URI');
-    return {AVTransportURI: uri};
+    return {AVTransportURI: uri, sourceRead: 'queried_last_change'};
   } catch (error) {
     throw Object.assign(new Error('Source observation failed'), {code: error?.code, observationAction: 'QueryLastChange'});
   }
@@ -152,7 +152,8 @@ class RaumkernelObserver {
             if (!valid() || this.devices.get(id) !== entry || entry.version !== version) return;
             this.store.observe(id, {...source,
               TrackURI: position.TrackURI, CurrentTransportState: transport.CurrentTransportState,
-              RelTime: position.RelTime, TrackDuration: position.TrackDuration, Volume: volume});
+               RelTime: position.RelTime, TrackDuration: position.TrackDuration, Volume: volume},
+               {refresh: true, origin: 'poll_complete', sourceRead: source.sourceRead});
           } catch (error) {
             // Diagnostics contain only bounded codes, never upstream messages,
             // names, transport URLs, or SOAP response bodies.
@@ -169,6 +170,23 @@ class RaumkernelObserver {
       const entry = this.devices.get(id);
       if (entry) entry.version++;
     }
+  }
+  async confirmSources(room) {
+    // Explicit transport demand only. Read current source and transport; a
+    // cached event receipt is not confirmation. No write or retry is performed.
+    const epoch = this.epoch, host = this.store.host;
+    await Promise.all(room.rendererIds.map(async id => {
+      const entry = this.devices.get(id);
+      if (!entry) throw new Error('source_confirmation_unavailable');
+      const version = entry.version;
+      const [source, transport] = await deadline(Promise.all([
+        sourceInfo(entry.device, this.fetch, this.timeoutMs), readAction(entry.device, 'GetTransportInfo'),
+      ]), this.timeoutMs);
+      if (this.stopped || epoch !== this.epoch || host !== this.store.host
+          || this.devices.get(id) !== entry || version !== entry.version) throw new Error('source_confirmation_unavailable');
+      this.store.observe(id, {...source, ...transport},
+        {refresh: true, origin: 'explicit_source_read', sourceRead: source.sourceRead});
+    }));
   }
   stop() {
     this.stopped = true;

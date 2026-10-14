@@ -1,4 +1,4 @@
-"""One-room launcher for upstream QobuzProxy, Speaker and protocol components.
+"""Per-room launcher for upstream QobuzProxy, Speaker and protocol components.
 
 Extension points are the backend factory, endpoint lifecycle, interface choice
 and carrying upstream player generations across awaits. No handshake override.
@@ -33,13 +33,20 @@ def load_runtime(data_dir, lan_address):
         raise ValueError('invalid_lan_address')
     settings = json.loads((data_dir / 'config.json').read_text())
     rooms = settings.get('rooms')
-    if not isinstance(rooms, list) or len(rooms) != 1 or settings.get('quality') != 6:
-        raise ValueError('upstream_first_requires_one_room_cd')
-    room = rooms[0]
-    if (not isinstance(room, dict) or not isinstance(room.get('id'), str) or not room['id'] or
-            not isinstance(room.get('name'), str) or not room['name'] or
-            type(room.get('port')) is not int or not 1024 <= room['port'] <= 65000):
-        raise ValueError('invalid_room_configuration')
+    if not isinstance(rooms, list) or not rooms or settings.get('quality') != 6:
+        raise ValueError('upstream_first_requires_rooms_cd')
+    ids, ports = set(), {8787, 8788}
+    for room in rooms:
+        if (not isinstance(room, dict) or not isinstance(room.get('id'), str) or not room['id'] or
+             not isinstance(room.get('name'), str) or not room['name'] or
+             type(room.get('port')) is not int or not 1024 <= room['port'] <= 65000):
+            raise ValueError('invalid_room_configuration')
+        audio_port = room.get('proxy_port', room['port'] + 100)
+        if (room['id'] in ids or type(audio_port) is not int or not 1024 <= audio_port <= 65535
+                or room['port'] == audio_port or room['port'] in ports or audio_port in ports):
+            raise ValueError('duplicate_room_or_port_collision')
+        ids.add(room['id'])
+        ports.update((room['port'], audio_port))
     runtime_dir = data_dir / 'upstream-first'
     # Prefer a token refreshed by this candidate; never replace original files.
     credential_path = runtime_dir / 'credentials.json'
@@ -53,26 +60,30 @@ def load_runtime(data_dir, lan_address):
         speakers=[SpeakerConfig(name=room['name'],
             uuid=str(uuid.uuid5(uuid.NAMESPACE_URL, 'raumfeld:' + room['id'])),
             backend_type='dlna', max_quality=6, http_port=room['port'],
-            proxy_port=room['port'] + 100, bind_address=str(address),
-            dlna_ip='raumfeld-room', dlna_description_url='raumfeld-room:' + room['id'])],
+             proxy_port=room.get('proxy_port', room['port'] + 100), bind_address=str(address),
+             dlna_ip='raumfeld-room', dlna_description_url='raumfeld-room:' + room['id']) for room in rooms],
     )
-    return room, config, runtime_dir
+    return rooms, config, runtime_dir
 
 
-def install_runtime(room, token, companion_base='http://127.0.0.1:8787', diagnostics=False):
+def install_runtime(rooms, token, companion_base='http://127.0.0.1:8787', diagnostics=False):
     if not isinstance(token, str) or len(token) < 32:
         raise ValueError('invalid_companion_token')
-    active = {}
+    rooms = [rooms] if isinstance(rooms, dict) else rooms
+    configured = {'raumfeld-room:' + room['id']: (room, i) for i, room in enumerate(rooms, 1)}
+    active = {}  # Keyed by exact component room configuration, never a shared current backend.
 
     class RoomBackendFactory(BackendFactory):
         @classmethod
         async def create_from_config(cls, config):
-            if config.backend.dlna.description_url != 'raumfeld-room:' + room['id']:
-                raise ValueError('only_configured_room_supported')
+            key = config.backend.dlna.description_url
+            if key not in configured:
+                raise ValueError('only_configured_rooms_supported')
+            room, ordinal = configured[key]
             backend = DeferredRoomBackend(CompanionClient(token, companion_base), room['id'], room['name'])
-            active['backend'] = backend
-            active['diagnostics'] = StateDiagnostics(backend) if diagnostics else None
-            backend.diagnostics = active['diagnostics']
+            backend.diagnostic_alias = 'room_' + str(ordinal).zfill(2)
+            backend.diagnostics = StateDiagnostics(backend) if diagnostics else None
+            active[key] = backend
             await backend.connect()
             return backend
 
@@ -83,17 +94,29 @@ def install_runtime(room, token, companion_base='http://127.0.0.1:8787', diagnos
     class GenerationWsManager(WsManager):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
-            if active.get('diagnostics'):
-                active['diagnostics'].bind_ws(self)
+            self._room_backend = active[self.config.backend.dlna.description_url]
+            if self._room_backend.diagnostics:
+                self._room_backend.diagnostics.bind_ws(self)
 
         def register_handler(self, msg_type, handler):
+            owner = getattr(handler, '__self__', None)
+            if self._room_backend.diagnostics and hasattr(owner, '_note_active') and not getattr(owner, '_room_traced', False):
+                owner._room_traced = True
+                note_active = owner._note_active
+                observer = self._room_backend.diagnostics
+                def activation(active):
+                    previous = owner._active
+                    result = note_active(active)
+                    observer.emit('upstream_activation', requestedActive=bool(active), changed=previous != active)
+                    return result
+                owner._note_active = activation
             def dispatch(mt, message):
-                backend = active['backend']
+                backend = self._room_backend
                 context = operation.set(backend.capture_operation())
                 try:
                     # Stock handler creates its own task. ContextVars preserve
                     # the generation captured here across that task's awaits.
-                    observer = active.get('diagnostics')
+                    observer = backend.diagnostics
                     return observer.dispatch(mt, message, handler) if observer else handler(mt, message)
                 finally:
                     operation.reset(context)
@@ -138,7 +161,7 @@ def install_runtime(room, token, companion_base='http://127.0.0.1:8787', diagnos
     app_module.Speaker = LifecycleSpeaker
 
 
-class OneRoomApplication(QobuzProxy):
+class RoomApplication(QobuzProxy):
     # Configured room identity belongs to the compatibility loader. Upstream UI
     # edit/add/remove must not invoke restart-on-edit or silently change it.
     async def _on_add_speaker(self, body):
@@ -151,17 +174,20 @@ class OneRoomApplication(QobuzProxy):
         raise ValueError('room_configuration_is_read_only')
 
 
+OneRoomApplication = RoomApplication  # Historical import compatibility; no single-room restriction.
+
+
 async def main():
     os.umask(0o077)
-    room, config, runtime_dir = load_runtime(os.environ.get('DATA_DIR', '/data'), os.environ['LAN_ADDRESS'])
+    rooms, config, runtime_dir = load_runtime(os.environ.get('DATA_DIR', '/data'), os.environ['LAN_ADDRESS'])
     runtime_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     token_storage.CACHE_DIR = runtime_dir
     token_storage.CACHE_FILE = runtime_dir / 'credentials.json'
-    install_runtime(room, os.environ['API_TOKEN'], diagnostics=Path('/app/.upstream-state-diagnostics').is_file())
+    install_runtime(rooms, os.environ['API_TOKEN'], diagnostics=Path('/app/.upstream-state-diagnostics').is_file())
     logging.basicConfig(level=logging.INFO)
     # Web UI is loopback-only; per-room discovery/audio use the preserved LAN
     # interface. Upstream owns auth, Android connection/session, queue and reports.
-    await OneRoomApplication(config).run()
+    await RoomApplication(config).run()
 
 
 if __name__ == '__main__':

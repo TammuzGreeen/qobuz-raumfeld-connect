@@ -8,6 +8,27 @@ const {StateStore} = require('../raumkernel/state');
 const {RaumkernelObserver, sourceInfo} = require('../raumkernel/adapter');
 const xml = fs.readFileSync(path.join(__dirname, 'fixtures/zones.xml'), 'utf8');
 
+test('explicit source confirmation makes fresh reads only and rejects superseded device observations', async () => {
+  const store = new StateStore();
+  store.hostFound('synthetic-host');
+  const adapter = new RaumkernelObserver(new EventEmitter(), store);
+  const calls = [];
+  const entry = {version: 0, device: {callAction: async (service, action) => {
+    calls.push(action);
+    return action === 'GetMediaInfo' ? {CurrentURI: 'spotify:synthetic-existing'}
+      : {CurrentTransportState: 'PAUSED_PLAYBACK'};
+  }}};
+  adapter.devices.set('synthetic-physical', entry);
+  await adapter.confirmSources({rendererIds: ['synthetic-physical']});
+  assert.deepEqual(calls.sort(), ['GetMediaInfo', 'GetTransportInfo']);
+  assert.equal(store.completeReads.get('synthetic-physical'), 1);
+  entry.device.callAction = async (service, action) => { entry.version++;
+    return action === 'GetMediaInfo' ? {CurrentURI: 'spotify:synthetic-existing'}
+      : {CurrentTransportState: 'PAUSED_PLAYBACK'}; };
+  await assert.rejects(adapter.confirmSources({rendererIds: ['synthetic-physical']}), /source_confirmation_unavailable/);
+  assert.equal(store.completeReads.get('synthetic-physical'), 1);
+});
+
 function setup(t, options = {}) {
   const calls = [];
   const kernel = new EventEmitter();
@@ -198,7 +219,7 @@ test('LastChange rejects malformed, absent, duplicate or wrong-instance URI evid
       {observationAction: 'QueryLastChange'});
   }
   assert.deepEqual(await sourceInfo(device, async () => ({ok: true, text: async () => lastChangeResponse('')}), 100),
-    {AVTransportURI: ''});
+    {AVTransportURI: '', sourceRead: 'queried_last_change'});
 });
 
 test('GetMediaInfo network failures do not fall back to weaker or cached evidence', async () => {

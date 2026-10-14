@@ -1,0 +1,11 @@
+{
+  "quality": 6,
+  "rooms": [
+    {"id": "replace-logical-room-01", "name": "Example Qobuz 01", "port": 8790},
+    {"id": "replace-logical-room-02", "name": "Example Qobuz 02", "port": 8791},
+    {"id": "replace-logical-room-03", "name": "Example Qobuz 03", "port": 8792},
+    {"id": "replace-logical-room-04", "name": "Example Qobuz 04", "port": 8793},
+    {"id": "replace-logical-room-05", "name": "Example Qobuz 05", "port": 8794},
+    {"id": "replace-logical-room-06", "name": "Example Qobuz 06", "port": 8795}
+  ]
+}

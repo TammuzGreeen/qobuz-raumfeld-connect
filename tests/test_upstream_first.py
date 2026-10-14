@@ -56,6 +56,7 @@ class UpstreamRoomTests(unittest.IsolatedAsyncioTestCase):
         self.row = {'roomId': 'synthetic-room', 'assigned': False, 'endpoint': None,
                     'rendererIds': ['synthetic-physical'], 'spotifyVersion': 0}
         self.node.lookup = AsyncMock(side_effect=lambda _: dict(self.row))
+        self.node.confirm_sources = AsyncMock()
         self.node.close = AsyncMock()
         async def create(_):
             self.row.update(assigned=True, endpoint=self.endpoint)
@@ -850,6 +851,52 @@ class UpstreamRoomTests(unittest.IsolatedAsyncioTestCase):
         self.failure = 'GetTransportInfo'
         self.assertEqual(await self.backend.get_state(), PlaybackState.PLAYING)
 
+    async def test_physical_spotify_projection_after_start_is_correlated_with_fresh_virtual_uri(self):
+        await self.start()
+        self.row['spotifyVersion'] += 1
+        self.row['spotifyEvidence'] = {'kind': 'physical', 'origin': 'fresh_read',
+            'freshness': 'complete_read', 'source': 'spotify', 'transport': 'PLAYING'}
+        before = self.mutations()
+        await self.backend.refresh()
+        self.assertFalse(self.backend._external_playback)
+        self.assertEqual(self.mutations(), before)
+        self.uri = 'spotify:synthetic-genuine-takeover'
+        self.row['spotifyVersion'] += 1
+        await self.backend.refresh()
+        self.assertTrue(self.backend._external_playback)
+        self.assertEqual(self.mutations(), before)
+
+    async def test_fresh_spotify_transition_during_pending_selection_is_terminal(self):
+        self.backend.prepare_for_selection()
+        await self.backend.refresh()
+        captured = self.backend.capture_operation()
+        self.row['spotifyVersion'] += 1
+        self.row['spotifyEvidence'] = {'kind': 'physical', 'origin': 'fresh_read',
+            'freshness': 'complete_read', 'source': 'spotify', 'transport': 'PLAYING'}
+        await self.backend.refresh()
+        self.assertTrue(self.backend._external_playback)
+        token = operation.set(captured)
+        try:
+            self.backend.prepare_for_selection()
+            with self.assertRaises(EndpointUnavailable):
+                self.backend.check_operation()
+        finally:
+            operation.reset(token)
+        self.assertEqual(self.mutations(), [])
+
+    async def test_fresh_source_check_before_uri_cancels_new_spotify_and_never_sends_uri(self):
+        self.backend.prepare_for_selection()
+        await self.backend.refresh()
+        async def takeover(room):
+            self.row['spotifyVersion'] += 1
+            self.row['spotifyEvidence'] = {'kind': 'physical', 'origin': 'fresh_read',
+                'freshness': 'complete_read', 'source': 'spotify', 'transport': 'PLAYING'}
+        self.node.confirm_sources.side_effect = takeover
+        with self.assertRaises(EndpointUnavailable):
+            await self.backend.play('https://synthetic.example.test/audio', BackendTrackMetadata('synthetic'))
+        self.assertNotIn('SetAVTransportURI', self.mutations())
+        self.assertNotIn('Play', self.mutations())
+
     async def test_real_node_companion_to_upstream_speaker_soap_and_audio_proxy_bytes(self):
         original = (speaker_module.BackendFactory, speaker_module.DiscoveryService, speaker_module.WsManager, speaker_module.VolumeCommandHandler, app_module.Speaker)
         child = subprocess.Popen(['node', 'tests/fake-companion-node.js', self.endpoint['descriptionUrl']],
@@ -911,6 +958,7 @@ class UpstreamRoomTests(unittest.IsolatedAsyncioTestCase):
             child.stdin.write('native\n'); child.stdin.flush()
             event = json.loads(await asyncio.wait_for(asyncio.to_thread(child.stdout.readline), 5))
             self.assertEqual(event['creations'], 1)
+            self.uri = 'spotify:synthetic-new'
             await speaker._backend.refresh()
             self.assertTrue(speaker._backend._external_playback)
             before = self.mutations()

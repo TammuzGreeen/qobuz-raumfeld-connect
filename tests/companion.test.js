@@ -29,7 +29,8 @@ function fixture({assigned = false, grouped = false, timeoutMs = 20} = {}) {
 test('catalog polling never creates an unassigned zone or requires physical source proof', () => {
   const f = fixture();
   for (let i = 0; i < 20; i++) assert.deepEqual(f.companion.catalog(), [
-    {roomId: 'synthetic-room', assigned: false, endpoint: null, rendererIds: ['synthetic-physical'], spotifyVersion: 0},
+    {roomId: 'synthetic-room', assigned: false, endpoint: null, rendererIds: ['synthetic-physical'], spotifyVersion: 0,
+      spotifyEvidence: null},
   ]);
   assert.deepEqual(f.calls, []);
   assert.equal(f.companion.leases, undefined);
@@ -137,14 +138,16 @@ test('renderer identity and description origin are checked without SOAP', () => 
   assert.equal(f.calls.length, 0);
 });
 
-test('native source notifications and new Spotify observations increment evidence, not repeated polls', () => {
+test('cached Spotify notifications and equivalent fresh reads do not manufacture takeover evidence', () => {
   const f = fixture();
   assert.equal(f.companion.catalog()[0].spotifyVersion, 0);
-  f.store.observe('synthetic-physical', {AVTransportURI: 'spotify:synthetic-source'});
+  f.store.observe('synthetic-physical', {AVTransportURI: 'spotify:synthetic-source', CurrentTransportState: 'PAUSED_PLAYBACK'});
   const version = f.companion.catalog()[0].spotifyVersion;
-  f.store.observe('synthetic-physical', {AVTransportURI: 'spotify:synthetic-source'});
+  f.store.observe('synthetic-physical', {AVTransportURI: 'spotify:synthetic-source', CurrentTransportState: 'PAUSED_PLAYBACK'});
   assert.equal(f.companion.catalog()[0].spotifyVersion, version);
   f.store.emit('nativeSpotify', 'synthetic-physical');
+  assert.equal(f.companion.catalog()[0].spotifyVersion, version);
+  f.store.observe('synthetic-physical', {AVTransportURI: 'spotify:synthetic-source', CurrentTransportState: 'PLAYING'});
   assert.equal(f.companion.catalog()[0].spotifyVersion, version + 1);
   assert.equal(f.calls.length, 0);
 });
@@ -219,7 +222,7 @@ test('background catalogs, observations and Spotify evidence never request a ren
   f.store.observationFailed('synthetic-physical', {code: 'ECONNREFUSED'});
   for (let i = 0; i < 10; i++) f.companion.catalog();
   assert.equal(f.calls.length, 0);
-  assert.equal(diagnostics.length, 0);
+  assert.ok(diagnostics.every(row => row.context === 'source_observation' && row.incremented === false));
 });
 
 test('deadline and post-ack topology rejection retain different phases without repair', async () => {
@@ -252,4 +255,21 @@ test('deadline and post-ack topology rejection retain different phases without r
     return true;
   });
   assert.equal(changed.calls.length, 1);
+});
+
+test('source-snapshot request obtains fresh read evidence without creating a renderer', async t => {
+  const f = fixture();
+  let reads = 0;
+  f.observer.confirmSources = async room => { reads++; assert.equal(room.id, 'synthetic-room'); };
+  const server = createCompanionApi(f.companion, 's'.repeat(32));
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/v1/source-snapshot`, {
+    method: 'POST', headers: {Authorization: `Bearer ${'s'.repeat(32)}`, 'Content-Type': 'application/json'},
+    body: JSON.stringify({roomId: 'synthetic-room'}),
+  });
+  assert.equal(response.status, 200);
+  assert.equal(reads, 1);
+  assert.equal(f.calls.length, 0);
+  assert.equal(f.companion.uncertain.size, 0);
 });

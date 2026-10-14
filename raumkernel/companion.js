@@ -14,25 +14,57 @@ class Companion {
     // only after discovery positively observes an assigned zone.
     this.uncertain = new Set();
     this.spotifyVersions = new Map();
-    const spotify = id => {
-      for (const room of this.store.rooms) {
-        if (room.rendererIds.includes(id) || room.zoneId === id) {
-          this.spotifyVersions.set(room.id, (this.spotifyVersions.get(room.id) || 0) + 1);
-        }
-      }
-    };
-    store.on('nativeSpotify', spotify);
+    this.sourceReads = new Map();
+    this.spotifyEvidence = new Map();
+    this.lastTransition = new Map();
+    const hint = (id, origin) => this.sourceEvidence(id, null, {refresh: false, origin});
+    store.on('nativeSpotify', id => hint(id, 'cached_renderer_state'));
     store.on('source', (id, uri) => {
-      if (typeof uri === 'string' && /spotify:|spotifyconnect/i.test(uri)) spotify(id);
+      if (typeof uri === 'string' && /spotify:|spotifyconnect/i.test(uri)) hint(id, 'cached_uri_event');
     });
-    const lastSpotify = new Map();
-    store.on('observation', (id, raw) => {
-      const detected = [raw?.AVTransportURI, raw?.TrackURI, raw?.CurrentTrackURI]
-        .some(uri => typeof uri === 'string' && /spotify:|spotifyconnect/i.test(uri));
-      if (detected && lastSpotify.get(id) !== true) spotify(id);
-      lastSpotify.set(id, detected);
-    });
+    store.on('observation', (id, raw, meta) => this.sourceEvidence(id, raw, meta));
+    store.on('lost', () => { this.sourceReads.clear(); this.lastTransition.clear(); });
   }
+  sourceEvidence(id, raw, meta = {}) {
+    const {classify} = require('./state');
+    const source = raw ? classify(raw) : 'spotify';
+    const transport = /^(PLAYING|PAUSED_PLAYBACK|STOPPED|NO_MEDIA_PRESENT|TRANSITIONING)$/.test(
+      raw?.CurrentTransportState || raw?.TransportState || '')
+      ? (raw.CurrentTransportState || raw.TransportState) : 'UNKNOWN';
+    const fresh = meta.refresh === true;
+    const uri = raw?.AVTransportURI || raw?.CurrentTrackURI || raw?.TrackURI || '';
+    const previous = this.sourceReads.get(id);
+    // An initial read establishes a baseline, not a subsequent takeover. Cached
+    // notifications never change that baseline, regardless of receipt time.
+    const changed = fresh && previous && source === 'spotify' &&
+      (previous.source !== 'spotify' || previous.uri !== uri ||
+       (transport === 'PLAYING' && previous.transport !== 'PLAYING'));
+    if (fresh && source !== 'unknown') this.sourceReads.set(id, {source, transport, uri});
+    for (const room of this.store.rooms) {
+      if (!room.rendererIds.includes(id) && room.zoneId !== id) continue;
+      const kind = room.rendererIds.includes(id) ? 'physical' : 'virtual';
+      const signature = JSON.stringify([uri, transport]); // Private, never emitted.
+      const increment = changed && this.lastTransition.get(room.id) !== signature;
+      if (fresh && source === 'external' && kind === 'virtual') this.lastTransition.delete(room.id);
+      const evidence = {origin: fresh ? 'fresh_read' : meta.origin === 'cached_uri_event'
+        ? 'cached_uri_event' : 'cached_renderer_state', freshness: fresh ? 'complete_read' : 'cached_event',
+        source, transport, kind, change: increment ? 'new_spotify_transition'
+          : !fresh ? 'hint_only' : !previous ? 'initial_baseline' : 'equivalent_observation',
+        sourceRead: meta.sourceRead === 'media_info' ? 'media_info'
+          : meta.sourceRead === 'queried_last_change' ? 'queried_last_change' : 'unspecified',
+        readOrigin: meta.origin === 'explicit_source_read' ? 'explicit_source_read'
+          : meta.origin === 'poll_complete' ? 'poll_complete' : 'unspecified'};
+      if (increment) {
+        this.lastTransition.set(room.id, signature);
+        this.spotifyVersions.set(room.id, (this.spotifyVersions.get(room.id) || 0) + 1);
+        this.spotifyEvidence.set(room.id, evidence);
+      }
+      if (source === 'spotify' || increment) this.trace('source_evidence', {room: this.alias(room.id),
+        context: 'source_observation', ...evidence, incremented: !!increment,
+        creationOutstanding: this.pending.has(room.id) || this.uncertain.has(room.id)});
+    }
+  }
+  alias(roomId) { return 'room_' + String(this.allowedRooms().indexOf(roomId) + 1).padStart(2, '0'); }
   fail(code, detail = {}) {
     throw Object.assign(new Error(code), {status: 409, origin: 'local_check',
       phase: 'preflight', requestAttempted: false, ...detail});
@@ -67,7 +99,8 @@ class Companion {
     if (room.zoneId) this.uncertain.delete(roomId);
     return {roomId, assigned: !!room.zoneId, endpoint: this.endpoint(room),
       rendererIds: [...room.rendererIds],
-      spotifyVersion: this.spotifyVersions.get(roomId) || 0};
+      spotifyVersion: this.spotifyVersions.get(roomId) || 0,
+      spotifyEvidence: this.spotifyEvidence.get(roomId) || null};
   }
   catalog() {
     return this.allowedRooms().map(roomId => {
@@ -75,12 +108,32 @@ class Companion {
       catch (error) { return {roomId, endpoint: null, unavailable: error.message}; }
     });
   }
+  inventory() {
+    const state = this.store.snapshot();
+    return state.rooms.map(room => {
+      const grouped = !!room.zoneId && state.zones.find(z => z.id === room.zoneId)?.roomIds.length !== 1;
+      const discovered = room.rendererIds.filter(id => this.observer.devices.has(id)).length;
+      return {roomId: room.id, name: room.name, rendererIds: [...room.rendererIds],
+        supported: !grouped && room.rendererIds.length > 0,
+        limitation: grouped ? 'grouped_room_not_supported' : !room.rendererIds.length ? 'physical_renderer_missing'
+          : discovered !== room.rendererIds.length ? 'physical_renderer_offline_or_undiscovered' : null,
+        physicalDiscovered: discovered, topologyFresh: state.topologyFresh};
+    });
+  }
+  async confirmForPlay(roomId) {
+    const room = this.room(roomId);
+    try { await this.observer.confirmSources(room); }
+    catch { this.fail('source_confirmation_unavailable'); }
+    const current = this.room(roomId);
+    if (JSON.stringify(current.rendererIds) !== JSON.stringify(room.rendererIds)) this.fail('topology_changed');
+    return this.lookup(roomId);
+  }
   async createForPlay(roomId) {
-    this.trace('preflight');
+    this.trace('preflight', {room: this.alias(roomId)});
     try { return await this.createForPlayChecked(roomId); }
     catch (error) {
       const detail = rendererError(error);
-      this.trace('failed', detail);
+      this.trace('failed', {room: this.alias(roomId), ...detail});
       throw Object.assign(new Error(detail.error), {status: 409, ...detail});
     }
   }
@@ -99,11 +152,11 @@ class Companion {
     let acknowledged = false;
     try {
       // No await separates the fresh topology check above from this one mutation.
-      this.trace('library_call');
+      this.trace('library_call', {room: this.alias(roomId)});
       await deadline(manager.connectRoomToZone(roomId, ''), this.timeoutMs,
         Object.assign(new Error('renderer_request_timeout'), {origin: 'deadline', phase: 'timeout'}));
       acknowledged = true;
-      this.trace('acknowledged', {origin: 'raumfeld_response'});
+      this.trace('acknowledged', {room: this.alias(roomId), origin: 'raumfeld_response'});
       const current = this.room(roomId);
       if (this.store.host !== host || JSON.stringify(current.rendererIds) !== physical) this.fail('topology_changed',
         {phase: 'postflight', requestAttempted: true});
@@ -123,7 +176,8 @@ class Companion {
 }
 
 const localErrors = new Set(['room_not_configured', 'topology_unavailable', 'room_unavailable',
-  'grouped_room_not_supported', 'creation_pending_or_uncertain', 'topology_changed', 'renderer_manager_unavailable']);
+  'grouped_room_not_supported', 'creation_pending_or_uncertain', 'topology_changed', 'renderer_manager_unavailable',
+  'source_confirmation_unavailable']);
 const origins = new Set(['local_check', 'raumfeld_response', 'network', 'deadline', 'library_unknown']);
 const phases = new Set(['preflight', 'uncertainty_block', 'postflight', 'response', 'network', 'timeout', 'library']);
 const networkCodes = new Set(['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH', 'ENOTFOUND']);
@@ -154,6 +208,16 @@ function createCompanionApi(companion, token) {
     const given = Buffer.from(req.headers.authorization || '');
     if (given.length !== expected.length || !timingSafeEqual(given, expected)) return send(401, {error: 'unauthorized'});
     if (req.method === 'GET' && req.url === '/v1/endpoints') return send(200, {rooms: companion.catalog()});
+    if (req.method === 'GET' && req.url === '/v1/inventory') return send(200, {rooms: companion.inventory()});
+    if (req.method === 'POST' && req.url === '/v1/source-snapshot') {
+      try {
+        let body = '';
+        for await (const chunk of req) { body += chunk; if (Buffer.byteLength(body) > 4096) return send(413, {error: 'body_too_large'}); }
+        const parsed = JSON.parse(body);
+        if (!parsed || Object.keys(parsed).length !== 1 || typeof parsed.roomId !== 'string') return send(400, {error: 'invalid_request'});
+        return send(200, await companion.confirmForPlay(parsed.roomId));
+      } catch (error) { return send(error.status || 503, rendererError(error)); }
+    }
     if (req.method !== 'POST' || req.url !== '/v1/zone-for-play') return send(404, {error: 'not_found'});
     if (req.headers['content-type']?.split(';')[0] !== 'application/json') return send(415, {error: 'json_required'});
     let size = 0;
