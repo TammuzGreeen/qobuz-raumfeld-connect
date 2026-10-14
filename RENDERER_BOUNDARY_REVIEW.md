@@ -2,7 +2,8 @@
 
 **Current diagnosis:** the companion used an API absent from the pinned library
 (`kernel.getManager()`), so explicit renderer demand failed locally before any
-Raumfeld creation request. The correction below is prepared, not deployed.
+Raumfeld creation request. Corrected `d3c3a78` is now approved/deployed; user hardware
+handoff acceptance is pending.
 
 ## Recorded hardware outcome — 2026-10-14
 
@@ -178,3 +179,23 @@ Passed 182 Python tests (172 project + ten standalone), 112 serial Node tests,
 smoke. Both direct Node fixtures and cross-process Python/Node fixture now use the
 real SDK manager shape. Installed player byte hash is unchanged. Not deployed,
 registry-published or hardware-verified; current diagnostic image remains `29c020d`.
+
+## Approved corrected-manager deployment — hardware test pending
+
+User explicitly requested deployment of `d3c3a78870bce634e9224a428b7d5e177da2a83e`.
+Running image is `raumfeld-connect:upstream-first-renderer-manager-review`; imported
+ID/config digest:
+`sha256:d0ed8401c46e8dd7bc487a83a95ded2164428c1107015c4680d7199595126df3`.
+Private archive checksum matched, fresh before-state/Compose/storage hashes and
+previous diagnostic image rollback retained alongside original working preview.
+One image/pull-policy-only app update, no retry. Healthy/authenticated, zero restarts,
+unchanged config/credentials/optional cache state, environment/mounts/host network,
+same room/membership and unrelated containers. Installed player and SDK error
+adaptation hashes verified; actual companion uses the corrected manager path.
+Upstream launcher/diagnostics verified, no legacy entrypoints. No startup transport
+or renderer-demand transmissions; no agent speaker controls.
+
+User hardware test requested: manually Pause Spotify, freshly select the same room
+in Qobuz and press Play once. Manual pause is accepted policy, not yet a proven
+firmware requirement; success is not inferred from deployment/health. Overall
+`hardwareVerified: false`, preview/tag/rollback unchanged and scrobbling deferred.

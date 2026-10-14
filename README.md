@@ -14,8 +14,9 @@ Spotify → Qobuz handoff failed before renderer/audio start; Spotify kept playi
 distinguish background maintenance from explicit takeover without claiming its
 discarded response is recoverable.
 The call-boundary defect is now identified: our companion used the nonexistent
-`kernel.getManager()` API. A corrected manager-path candidate is prepared but not
-deployed; manual Spotify pause is an acceptable future test policy, not a proven requirement.
+`kernel.getManager()` API. Corrected `d3c3a78` is now approved/deployed, awaiting
+user hardware handoff acceptance. Manual Spotify pause is an acceptable test policy,
+not a proven requirement.
 Broader acceptance remains incomplete. Image/acceptance details
 below identify the preserved working preview, not this newer experimental deployment.
 Build the tagged/pinned sources below to preserve the tested preview.

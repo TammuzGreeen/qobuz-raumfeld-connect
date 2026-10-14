@@ -1030,3 +1030,19 @@ remain terminal. Real pinned SDK-shape regression added, no fallback API or play
 seek changes. Manual Spotify pause is accepted as a future test policy, not proven
 necessary. User advised not to retry the current defective/blocked deployment.
 No new deployment or agent speaker controls; separate correction approval needed.
+
+## Approved corrected-manager deployment
+
+User explicitly approved deploying `d3c3a78870bce634e9224a428b7d5e177da2a83e`.
+Imported ID/config digest:
+`sha256:d0ed8401c46e8dd7bc487a83a95ded2164428c1107015c4680d7199595126df3`.
+Private checksum matched; before-state/Compose/storage hashes and prior diagnostic
+image rollback retained with original working preview. One image/pull-policy-only
+update, no retry. Healthy/authenticated, zero restarts, configuration/credentials/
+optional cache/environment/mounts/host network, room/membership and unrelated
+containers preserved. Player unchanged; SDK error adaptation hash and corrected
+manager path verified. Actual upstream launcher, diagnostics, no legacy entrypoints,
+no startup transport/provisioning transmissions or agent speaker controls.
+Fresh user Pause Spotify → explicit Qobuz selection + Play test pending. Manual
+pause accepted policy, not a proven requirement. Full `hardwareVerified: false`,
+immutable preview untouched and scrobbling deferred.
