@@ -14,10 +14,10 @@ topology(false);
 let creations = 0;
 const observer = {devices: new Map([['synthetic-zone', {device: {
   udn: () => 'synthetic-zone', upnpClient: {url: process.argv[2]},
-}}]]), kernel: {getManager: () => ({zoneManager: {connectRoomToZone: async () => {
+}}]]), kernel: {managerDisposer: {zoneManager: {connectRoomToZone: async () => {
   creations++;
   topology(true);
-}}})}};
+}}}}};
 const companion = new Companion(store, observer, {allowedRooms: () => ['synthetic-room']});
 const server = createCompanionApi(companion, 's'.repeat(32));
 server.listen(0, '127.0.0.1', () => console.log(JSON.stringify({port: server.address().port})));

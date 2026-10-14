@@ -166,3 +166,15 @@ block, so user was asked not to retry. No uncertainty state was cleared on the
 live process and no speaker controls or new deployment were performed. A separately
 approved corrected deployment and fresh user test remain necessary. Spotify
 continuation confirms this failed attempt did not interrupt it—nothing more.
+
+Prepared corrected implementation `d3c3a78870bce634e9224a428b7d5e177da2a83e` is
+locally archived as `raumfeld-connect:upstream-first-renderer-manager-review`
+(amd64). OCI index:
+`sha256:1a208bd614dfed588eb061428a02ff0a341b2a2cde1a2f5bab3864b3f810f7fe`;
+private export SHA-256:
+`1a12177af88bd72d31c69859562204207b831d606853e9fbf970230a72c90488`.
+Passed 182 Python tests (172 project + ten standalone), 112 serial Node tests,
+17 packaged Node boundary tests and offline supervisor/UI/health/storage/shutdown
+smoke. Both direct Node fixtures and cross-process Python/Node fixture now use the
+real SDK manager shape. Installed player byte hash is unchanged. Not deployed,
+registry-published or hardware-verified; current diagnostic image remains `29c020d`.
