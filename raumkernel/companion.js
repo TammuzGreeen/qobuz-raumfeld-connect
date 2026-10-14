@@ -7,8 +7,8 @@ const {deadline} = require('./adapter');
 // Discovery and explicit zone demand only. No Qobuz sessions, leases, source
 // ownership, transport commands, or background repair live in this companion.
 class Companion {
-  constructor(store, observer, {allowedRooms, timeoutMs = 10000}) {
-    Object.assign(this, {store, observer, allowedRooms, timeoutMs});
+  constructor(store, observer, {allowedRooms, timeoutMs = 10000, diagnostic = () => {}}) {
+    Object.assign(this, {store, observer, allowedRooms, timeoutMs, diagnostic});
     this.pending = new Set();
     // An uncertain mutation cannot be retried by another HTTP request. Reset
     // only after discovery positively observes an assigned zone.
@@ -33,7 +33,14 @@ class Companion {
       lastSpotify.set(id, detected);
     });
   }
-  fail(code) { throw Object.assign(new Error(code), {status: 409}); }
+  fail(code, detail = {}) {
+    throw Object.assign(new Error(code), {status: 409, origin: 'local_check',
+      phase: 'preflight', requestAttempted: false, ...detail});
+  }
+  trace(phase, detail = {}) {
+    try { this.diagnostic({context: 'explicit_play_renderer', phase, ...detail}); }
+    catch {} // Diagnostic failure cannot alter authority or command outcome.
+  }
   room(roomId) {
     if (!this.allowedRooms().includes(roomId)) this.fail('room_not_configured');
     const state = this.store.snapshot();
@@ -69,25 +76,68 @@ class Companion {
     });
   }
   async createForPlay(roomId) {
+    this.trace('preflight');
+    try { return await this.createForPlayChecked(roomId); }
+    catch (error) {
+      const detail = rendererError(error);
+      this.trace('failed', detail);
+      throw Object.assign(new Error(detail.error), {status: 409, ...detail});
+    }
+  }
+  async createForPlayChecked(roomId) {
     const room = this.room(roomId);
     // Assigned but missing renderer: never drop, recreate or regroup it.
     if (room.zoneId) return this.lookup(roomId);
-    if (this.pending.has(roomId) || this.uncertain.has(roomId)) this.fail('creation_pending_or_uncertain');
+    if (this.pending.has(roomId) || this.uncertain.has(roomId)) this.fail('creation_pending_or_uncertain',
+      {phase: 'uncertainty_block'});
     this.pending.add(roomId);
     this.uncertain.add(roomId);
     const host = this.store.host;
     const physical = JSON.stringify(room.rendererIds);
+    let acknowledged = false;
     try {
       // No await separates the fresh topology check above from this one mutation.
-      await deadline(this.observer.kernel.getManager().zoneManager.connectRoomToZone(roomId, ''), this.timeoutMs);
+      this.trace('library_call');
+      await deadline(this.observer.kernel.getManager().zoneManager.connectRoomToZone(roomId, ''), this.timeoutMs,
+        Object.assign(new Error('renderer_request_timeout'), {origin: 'deadline', phase: 'timeout'}));
+      acknowledged = true;
+      this.trace('acknowledged', {origin: 'raumfeld_response'});
       const current = this.room(roomId);
-      if (this.store.host !== host || JSON.stringify(current.rendererIds) !== physical) this.fail('topology_changed');
+      if (this.store.host !== host || JSON.stringify(current.rendererIds) !== physical) this.fail('topology_changed',
+        {phase: 'postflight', requestAttempted: true});
       // SOAP completion need not mean a renderer has appeared. The caller waits
       // for discovery; neither this method nor catalog polling repeats creation.
       return this.lookup(roomId);
-    } catch { this.fail('creation_pending_or_uncertain'); }
+    } catch (error) {
+      if (error.status) {
+        error.phase = acknowledged ? 'postflight' : error.phase;
+        error.requestAttempted = acknowledged || error.requestAttempted;
+        throw error;
+      }
+      throw Object.assign(new Error('creation_pending_or_uncertain'), rendererError(error));
+    }
     finally { this.pending.delete(roomId); }
   }
+}
+
+const localErrors = new Set(['room_not_configured', 'topology_unavailable', 'room_unavailable',
+  'grouped_room_not_supported', 'creation_pending_or_uncertain', 'topology_changed']);
+const origins = new Set(['local_check', 'raumfeld_response', 'network', 'deadline', 'library_unknown']);
+const phases = new Set(['preflight', 'uncertainty_block', 'postflight', 'response', 'network', 'timeout', 'library']);
+const networkCodes = new Set(['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH', 'ENOTFOUND']);
+function rendererError(error) {
+  const origin = origins.has(error.origin) ? error.origin
+    : origins.has(error.rendererRequestOrigin) ? error.rendererRequestOrigin : 'library_unknown';
+  const phase = phases.has(error.phase) ? error.phase
+    : origin === 'raumfeld_response' ? 'response' : origin === 'network' ? 'network'
+      : origin === 'local_check' ? 'preflight' : 'library';
+  const status = error.rendererHttpStatus;
+  const code = error.rendererNetworkCode || error.networkCode;
+  return {error: localErrors.has(error.message) ? error.message : 'renderer_request_failed', origin, phase,
+    requestAttempted: typeof error.requestAttempted === 'boolean' ? error.requestAttempted
+      : typeof error.rendererRequestAttempted === 'boolean' ? error.rendererRequestAttempted : 'unknown',
+    ...(Number.isInteger(status) && status >= 100 && status <= 599 ? {rendererHttpStatus: status} : {}),
+    ...(networkCodes.has(code) ? {networkCode: code} : {})};
 }
 
 function createCompanionApi(companion, token) {
@@ -118,7 +168,7 @@ function createCompanionApi(companion, token) {
         return send(400, {error: 'invalid_request'});
       }
       try { return send(200, await companion.createForPlay(body.roomId)); }
-      catch (error) { return send(error.status || 503, {error: error.status ? error.message : 'zone_unavailable'}); }
+      catch (error) { return send(error.status || 503, rendererError(error)); }
     } catch { return send(400, {error: 'invalid_json'}); }
   });
   server.requestTimeout = 10000;

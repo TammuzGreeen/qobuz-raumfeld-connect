@@ -292,6 +292,11 @@ preview/tag and rollback unchanged.
 
 ## Spotify → Qobuz handoff — failed on `361e46e` (2026-10-14)
 
+Follow-up: user confirmed Spotify continued throughout. Subscription-maintenance
+refusals are distinct from the explicit renderer demand. Exact original response
+was discarded; [boundary review](RENDERER_BOUNDARY_REVIEW.md) documents the evidence
+limit and undeployed error-preservation correction, without inventing a cause.
+
 User let Spotify play, explicitly selected the same room in Qobuz and pressed Play.
 Qobuz produced no audible playback on phone or speakers, then lost its app
 connection shortly afterward. Record this handoff as failed, not as successful

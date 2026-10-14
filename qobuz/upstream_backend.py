@@ -44,6 +44,32 @@ class EndpointUnavailable(RuntimeError):
     pass
 
 
+class RendererRequestError(EndpointUnavailable):
+    """Categorical companion error; never retain raw response bodies or URLs."""
+    def __init__(self, status, detail):
+        codes = {'room_not_configured', 'topology_unavailable', 'room_unavailable',
+                 'grouped_room_not_supported', 'creation_pending_or_uncertain',
+                 'topology_changed', 'renderer_request_failed'}
+        origins = {'local_check', 'raumfeld_response', 'network', 'deadline', 'library_unknown'}
+        phases = {'preflight', 'uncertainty_block', 'postflight', 'response', 'network', 'timeout', 'library'}
+        networks = {'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH', 'ENOTFOUND'}
+        def label(value, allowed, fallback='unknown'):
+            return value if isinstance(value, str) and value in allowed else fallback
+        self.status = status
+        self.error_code = label(detail.get('error'), codes, 'renderer_request_failed')
+        self.origin = label(detail.get('origin'), origins)
+        self.phase = label(detail.get('phase'), phases)
+        attempted = detail.get('requestAttempted')
+        self.request_attempted = attempted if type(attempted) is bool else 'unknown'
+        remote = detail.get('rendererHttpStatus')
+        self.renderer_http_status = remote if type(remote) is int and 100 <= remote <= 599 else None
+        self.network_code = label(detail.get('networkCode'), networks)
+        super().__init__(f'renderer_request_failed origin={self.origin} phase={self.phase} '
+                         f'error={self.error_code} companionStatus={status} '
+                         f'rendererStatus={self.renderer_http_status} networkCode={self.network_code} '
+                         f'requestAttempted={self.request_attempted}')
+
+
 class CompanionClient:
     def __init__(self, token, base='http://127.0.0.1:8787'):
         parsed = urlsplit(base)
@@ -57,6 +83,29 @@ class CompanionClient:
         async with self.session.request(method, self.base + path, json=body,
                 headers={'Authorization': 'Bearer ' + self.token}, allow_redirects=False) as response:
             if response.status != 200:
+                if method == 'POST' and path == '/v1/zone-for-play':
+                    # Preserve only allowlisted categorical error fields. Never
+                    # repeat a mutating request to obtain a missing response.
+                    detail = {}
+                    chunks, size = [], 0
+                    try:
+                        async for chunk in response.content.iter_chunked(1024):
+                            chunks.append(chunk)
+                            size += len(chunk)
+                            if size > 4096:
+                                break
+                        raw = b''.join(chunks)
+                    except (aiohttp.ClientError, asyncio.TimeoutError):
+                        raw = b''
+                    if len(raw) <= 4096:
+                        try:
+                            import json
+                            parsed = json.loads(raw)
+                            if isinstance(parsed, dict):
+                                detail = parsed
+                        except (ValueError, UnicodeDecodeError):
+                            pass
+                    raise RendererRequestError(response.status, detail)
                 raise EndpointUnavailable('companion_unavailable')
             return await response.json()
 

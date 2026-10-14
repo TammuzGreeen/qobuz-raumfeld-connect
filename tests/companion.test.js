@@ -79,7 +79,7 @@ test('concurrent creation and changed host cannot acquire authority', async () =
   f.store.hostFound('another-synthetic-host');
   f.topology(true);
   resolve();
-  await assert.rejects(first, /creation_pending_or_uncertain/);
+  await assert.rejects(first, /topology_changed/);
   assert.equal(f.calls.length, 1);
 });
 
@@ -135,4 +135,56 @@ test('companion HTTP exposes no session, binding-lease or playback-control endpo
   assert.equal((await fetch(base + '/v1/zone-for-play', {method: 'POST', headers,
     body: JSON.stringify({roomId: 'synthetic-room'})})).status, 200);
   assert.equal(f.calls.length, 1);
+});
+
+test('explicit renderer demand distinguishes our check from renderer response and network failure', async t => {
+  for (const kind of ['local', 'response', 'network', 'unknown']) {
+    const f = fixture();
+    const diagnostics = [];
+    f.companion.diagnostic = row => diagnostics.push(row);
+    if (kind === 'local') f.store.hostLost();
+    else f.observer.kernel.getManager = () => ({zoneManager: {connectRoomToZone: async (...args) => {
+      f.calls.push(args);
+      throw Object.assign(new Error('synthetic-private-message'), kind === 'response'
+        ? {rendererRequestOrigin: 'raumfeld_response', rendererRequestAttempted: true, rendererHttpStatus: 503}
+        : kind === 'network'
+          ? {rendererRequestOrigin: 'network', rendererRequestAttempted: true, rendererNetworkCode: 'ECONNREFUSED'}
+          : {});
+    }}});
+    const server = createCompanionApi(f.companion, 's'.repeat(32));
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    t.after(() => new Promise(resolve => server.close(resolve)));
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const headers = {Authorization: `Bearer ${'s'.repeat(32)}`, 'Content-Type': 'application/json'};
+    const response = await fetch(base + '/v1/zone-for-play', {method: 'POST', headers,
+      body: JSON.stringify({roomId: 'synthetic-room'})});
+    assert.equal(response.status, 409);
+    const body = await response.json();
+    assert.equal(body.origin, {local: 'local_check', response: 'raumfeld_response', network: 'network', unknown: 'library_unknown'}[kind]);
+    assert.equal(body.requestAttempted, kind === 'local' ? false : kind === 'unknown' ? 'unknown' : true);
+    assert.equal(body.rendererHttpStatus, kind === 'response' ? 503 : undefined);
+    assert.equal(body.networkCode, kind === 'network' ? 'ECONNREFUSED' : undefined);
+    assert.equal(f.calls.length, kind === 'local' ? 0 : 1);
+    assert.ok(!JSON.stringify({body, diagnostics}).includes('synthetic-private-message'));
+    if (kind !== 'local') {
+      const blocked = await fetch(base + '/v1/zone-for-play', {method: 'POST', headers,
+        body: JSON.stringify({roomId: 'synthetic-room'})});
+      const next = await blocked.json();
+      assert.equal(next.origin, 'local_check');
+      assert.equal(next.phase, 'uncertainty_block');
+      assert.equal(next.requestAttempted, false);
+      assert.equal(f.calls.length, 1);
+    }
+  }
+});
+
+test('background catalogs, observations and Spotify evidence never request a renderer', () => {
+  const f = fixture();
+  const diagnostics = [];
+  f.companion.diagnostic = row => diagnostics.push(row);
+  f.store.emit('nativeSpotify', 'synthetic-physical');
+  f.store.observationFailed('synthetic-physical', {code: 'ECONNREFUSED'});
+  for (let i = 0; i < 10; i++) f.companion.catalog();
+  assert.equal(f.calls.length, 0);
+  assert.equal(diagnostics.length, 0);
 });
