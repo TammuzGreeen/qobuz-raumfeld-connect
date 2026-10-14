@@ -949,3 +949,23 @@ change. Private raw captures stay outside Git. Both source handoffs are next as
 user-driven acceptance; fresh nonzero starts and current-image control/playing-scrub
 regression remain separately outstanding. Full `hardwareVerified: false`, scrobbling
 deferred, preserved preview/tag/rollback unchanged.
+
+## Spotify → Qobuz handoff failure on current candidate — 2026-10-14
+
+User let Spotify play, explicitly selected the room in Qobuz and pressed Play;
+Qobuz produced no phone/speaker audio and lost app connection shortly afterward.
+Read-only diagnostics show different-track paused state loaded (event 1183), then
+explicit PLAYING (event 1184) failed during on-demand companion renderer creation:
+`create_for_play` received a non-200 response, raised `companion_unavailable`, and
+player entered ERROR before Qobuz URI/Play transmission. No Seek failure or stale
+command rejection in this attempt. Exact response status/body was not captured by
+the exception. Current room is unassigned with no virtual-renderer endpoint.
+
+Node's non-loopback dynamic speaker-service ECONNREFUSED occurred approximately
+33 seconds before explicit Play; possible relation, not proven causal attribution.
+Healthy/authenticated, zero restarts; Android connection loss remains user-observed,
+not contradicted by backend health. No agent transport/provisioning mutations,
+retry or deployment change. Private raw logs retained. Spotify continuation outcome
+awaits clarification; reverse handoff not tested. Current paused-seek pass remains
+recorded; Spotify → Qobuz acceptance failed, full `hardwareVerified: false`,
+scrobbling deferred, preview/tag/rollback preserved. See `SEEK_REVIEW.md`.

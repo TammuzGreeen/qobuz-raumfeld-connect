@@ -289,3 +289,36 @@ checks. Proceed to user-driven Spotify → Qobuz → Spotify handoff using fresh
 Qobuz selection plus Play; do not infer reclamation authority from connection alone.
 Scrobbling remains deferred and overall `hardwareVerified: false`. Published
 preview/tag and rollback unchanged.
+
+## Spotify → Qobuz handoff — failed on `361e46e` (2026-10-14)
+
+User let Spotify play, explicitly selected the same room in Qobuz and pressed Play.
+Qobuz produced no audible playback on phone or speakers, then lost its app
+connection shortly afterward. Record this handoff as failed, not as successful
+source replacement or a seek regression. Whether Spotify continued playing after
+the attempt is not yet reported; reverse handoff is not tested.
+
+Read-only capture shows a different-track paused/positive-position update (local
+event 1183) loaded successfully without transport start, then explicit PLAYING
+(event 1184) reached `_start_playback`. Playback failed in
+`DeferredRoomBackend.play` → `CompanionClient.create_for_play` → `request`, where
+the `/v1/zone-for-play` response was non-200 (`companion_unavailable`). No Qobuz
+AVTransport URI or Play transmission appears in this attempt. This is renderer
+provisioning failure before audio transmission, not a rejected Seek or stale-command
+guard. Exact HTTP status and companion response error were not retained by the
+Python exception; do not infer the particular creation-error category from it.
+
+Current read-only companion catalog shows one room/physical renderer, unassigned,
+without a virtual-renderer endpoint and not catalog-unavailable. Node logged
+ECONNREFUSED to a non-loopback dynamic speaker-service port approximately 33 seconds
+before explicit Qobuz Play. This is a potential related service/discovery failure,
+not yet a proven cause of the later provisioning response. No request was repeated
+to recover its missing error body or probe uncertain renderer creation.
+
+Container remains healthy/authenticated with zero restarts. These do not establish
+an active Android session; the user's app-connection loss stands as observed.
+Raw logs/status/catalog remain private. No agent controls, renderer creation,
+regroup, retry or deployment change during diagnosis. Prior paused-seek hardware
+pass remains valid for its recorded attempt; handoff acceptance is failed and full
+`hardwareVerified: false`. Scrobbling stays deferred; immutable preview/rollback
+unchanged. Further provisioning/error-propagation investigation is required.

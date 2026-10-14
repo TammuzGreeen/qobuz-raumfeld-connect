@@ -9,6 +9,7 @@ from the published preview. Candidate `361e46e` is now separately approved/deplo
 paused-scrub silence and explicit resume from the selected point now pass the user
 hardware test, with steady connection. Previous
 `d58a5cd` passed playing scrubbing but auto-resumed during paused scrubbing.
+Spotify → Qobuz handoff failed before renderer/audio start; investigation is ongoing.
 Broader acceptance remains incomplete. Image/acceptance details
 below identify the preserved working preview, not this newer experimental deployment.
 Build the tagged/pinned sources below to preserve the tested preview.

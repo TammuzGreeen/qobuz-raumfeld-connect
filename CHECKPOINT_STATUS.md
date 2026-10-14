@@ -7,7 +7,8 @@ Candidate `361e46e` is now separately approved/deployed; paused-scrub silence an
 explicit resume from the chosen point pass the user hardware test, with steady
 connection. Previous `d58a5cd` passed playing
 scrubbing but auto-resumed during paused scrubbing. Broader acceptance remains
-incomplete. It does not change this checkpoint's preserved
+incomplete; Spotify → Qobuz handoff failed before renderer/audio start and is under
+investigation. It does not change this checkpoint's preserved
 image, immutable tag or hardware evidence.
 
 Publication: `upstream-first-preview-2026-10-12` on
