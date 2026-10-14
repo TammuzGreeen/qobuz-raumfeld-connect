@@ -15,8 +15,9 @@ distinguish background maintenance from explicit takeover without claiming its
 discarded response is recoverable.
 The call-boundary defect is now identified: our companion used the nonexistent
 `kernel.getManager()` API. Corrected `d3c3a78` is now approved/deployed, awaiting
-user hardware handoff acceptance. Manual Spotify pause is an acceptable test policy,
-not a proven requirement.
+user hardware handoff acceptance. Renderer creation now succeeds, but authority
+is revoked before Qobuz transport start and handoff still fails. Manual Spotify
+pause is an acceptable test policy, not a proven requirement or successful handoff.
 Broader acceptance remains incomplete. Image/acceptance details
 below identify the preserved working preview, not this newer experimental deployment.
 Build the tagged/pinned sources below to preserve the tested preview.

@@ -2,8 +2,8 @@
 
 **Current diagnosis:** the companion used an API absent from the pinned library
 (`kernel.getManager()`), so explicit renderer demand failed locally before any
-Raumfeld creation request. Corrected `d3c3a78` is now approved/deployed; user hardware
-handoff acceptance is pending.
+Raumfeld creation request. Corrected `d3c3a78` now creates the renderer on hardware,
+but authority is revoked before Qobuz transport start; handoff still fails.
 
 ## Recorded hardware outcome — 2026-10-14
 
@@ -199,3 +199,38 @@ User hardware test requested: manually Pause Spotify, freshly select the same ro
 in Qobuz and press Play once. Manual pause is accepted policy, not yet a proven
 firmware requirement; success is not inferred from deployment/health. Overall
 `hardwareVerified: false`, preview/tag/rollback unchanged and scrobbling deferred.
+
+## Corrected-manager hardware attempt — creation acknowledged, handoff failed
+
+After the requested manual-Pause policy test on `d3c3a78`, user reported Qobuz
+disconnects immediately and plays on the phone instead. Record failed room handoff
+with phone fallback, not successful Qobuz speaker playback. No further user retry
+or agent speaker command was requested during diagnosis.
+
+Categorical diagnostics now show explicit renderer-demand preflight → library_call
+→ Raumfeld acknowledgement. Read-only catalog confirms the room changed from
+unassigned/no endpoint to assigned/endpoint available, with unchanged physical
+membership and room identity. The manager-API correction therefore reached and
+successfully completed creation; the prior local missing-method defect is resolved
+for this observed attempt. That is not complete handoff success.
+
+Initial paused/zero-position track loaded (local event 1), explicit PLAYING reached
+loading (event 2), renderer creation was acknowledged, then selection and activation
+authority changed to inactive before Qobuz URI/Play transmission. Start ended in
+ERROR with `stale_upstream_command`; no Qobuz transport writes occurred. Container
+remained healthy with zero restarts. Android disconnection/phone playback is user
+observed, not contradicted by container health.
+
+Spotify-evidence version differs from the pre-deployment snapshot, while room and
+physical membership do not. Backend refresh revokes authority on version changes;
+this is consistent with the observed abort, but the counter snapshot alone does
+not prove the exact increment that caused it or distinguish fresh native Spotify
+activity from re-observation of the existing paused source during renderer creation.
+Do not suppress all Spotify evidence or let old callbacks adopt newer authority.
+The precise source-release trigger needs categorical tracing/reproduction before
+a safety correction. Manual Spotify pause has not established successful handoff.
+
+No deployment, source-guard change, automatic reclamation, regroup or mutation
+retry during evidence collection. New renderer remains discovered; it was not
+dropped/recreated. Prior Qobuz seek passes remain recorded on their exact images;
+full `hardwareVerified: false`, reverse handoff untested and scrobbling deferred.

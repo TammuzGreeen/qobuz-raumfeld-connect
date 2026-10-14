@@ -1046,3 +1046,21 @@ no startup transport/provisioning transmissions or agent speaker controls.
 Fresh user Pause Spotify → explicit Qobuz selection + Play test pending. Manual
 pause accepted policy, not a proven requirement. Full `hardwareVerified: false`,
 immutable preview untouched and scrobbling deferred.
+
+## Corrected-manager attempt — post-creation authority abort
+
+User reported Qobuz disconnects immediately and plays on the phone after the
+manual Spotify-pause handoff test. On `d3c3a78`, explicit creation now reaches
+library_call and Raumfeld acknowledgement; read-only catalog shows assigned room
+and renderer endpoint with unchanged identity/physical membership. Prior API defect
+is resolved for the observed creation, not a successful handoff.
+
+Track loaded (event 1); explicit Play entered loading (event 2). After renderer
+acknowledgement, selection/activation authority became inactive and start failed
+with stale_upstream_command before Qobuz URI/Play. Healthy, zero restarts. Spotify
+evidence counter differs from before deployment; unconditional version-change
+release is a candidate trigger, but precise increment/source freshness is not yet
+proven. Need distinguish fresh takeover from existing paused-source re-observation;
+no blanket source-guard relaxation. No agent controls/deployment change, no retry
+or drop/recreate. Phone fallback user-observed; full hardwareVerified false,
+reverse handoff untested, scrobbling deferred. See RENDERER_BOUNDARY_REVIEW.md.
