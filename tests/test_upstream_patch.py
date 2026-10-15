@@ -9,6 +9,15 @@ from qobuz_proxy.playback import player
 
 
 class UpstreamPatchTests(unittest.TestCase):
+    def test_start_position_patch_is_installed_and_refuses_double_application(self):
+        root = Path(__file__).resolve().parents[1]
+        installer = runpy.run_path(str(root / 'docker/apply-upstream-start-position-patch.py'))
+        apply = runpy.run_path(str(root / 'docker/apply-upstream-player-patch.py'))['apply']
+        source = Path(player.__file__).read_bytes()
+        self.assertIn(b'_pending_start_position_ms', source)
+        with self.assertRaisesRegex(ValueError, 'Unreviewed upstream'):
+            apply(source, (root / 'upstream-patches/deferred-start-position.patch').read_text(), installer['EXPECTED'])
+
     def test_installed_patch_and_hash_rejection(self):
         root = Path(__file__).resolve().parents[1]
         installer = runpy.run_path(str(root / 'docker/apply-upstream-player-patch.py'))

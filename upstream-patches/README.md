@@ -4,9 +4,19 @@ Later candidate builds also apply `seek-acknowledgement.patch`, reviewed separat
 in [SEEK_REVIEW.md](../SEEK_REVIEW.md). The published preview applied only the
 partial-state patch below. Neither contribution is submitted/accepted upstream.
 
-The next undeployed correction adds `deferred-paused-seek.patch` after the seek
+Later builds apply `deferred-paused-seek.patch` after the seek
 acknowledgement patch. It stores a desired paused cursor until explicit Play only
 for backends opting into deferral; see `SEEK_REVIEW.md` for source safety and tests.
+
+The post-beta candidate additionally applies `deferred-start-position.patch` to
+the exact paused-seek player hash. A stopped/load-only SET_STATE position is a
+desired start offset, not an applied clock or transport Seek. Retain it across
+separate state-only Play; consume it once via the existing acknowledged post-start
+Seek. Stop, track/queue-occurrence change, authority/session invalidation and room
+endpoint retirement discard it. There is no timer, old-session restoration or
+retry. This fixes the split paused snapshot → Play sequence observed after Spotify
+handoff. Existing paused-scrub semantics are unchanged. See
+`POST_BETA_FIX_REVIEW.md` for the exact evidence, naming fix and candidate checks.
 
 Base: qobuz-proxy `91db990abeb486005a8315a6b1e722df776c4ba4` (unchanged dependency pin).
 Only `qobuz_proxy/playback/player.py` is patched. Attribution and the installed

@@ -137,7 +137,7 @@ class Service:
             for id in ids:
                 port = previous[id]['port'] if id in previous else next(p for p in range(8790, 8840) if p not in used)
                 used.add(port)
-                rooms.append({'id': id, 'name': known[id]['name'] + ' Qobuz ' + id[-6:], 'port': port})
+                rooms.append({'id': id, 'name': known[id]['name'] + ' Qobuz', 'port': port})
             self.settings = {'rooms': rooms, 'quality': quality}
             save_json(self.data_dir / 'config.json', self.settings)
             self.receiver_errors.clear()

@@ -33,7 +33,8 @@ class StateDiagnostics:
             authority = self.backend.capture_operation()[2]
             source_active = authority[1] if authority is not None else 'unavailable'
             values = dict(room=self.backend.diagnostic_alias, event=event.get(), phase=phase,
-                          stage=stage, sourceActive=source_active, **fields)
+                          stage=stage, sourceActive=source_active, **fields,
+                          pendingStart=position(getattr(player, '_pending_start_position_ms', None)))
             logger.info('Upstream state diagnostic %s', ' '.join(f'{k}={v}' for k, v in values.items()))
         except Exception:
             pass  # Diagnostics must never change command success or safety.
@@ -98,7 +99,10 @@ class StateDiagnostics:
                     if name == 'apply_remote_state':
                         fields = dict(playing=playing(kwargs.get('playing_state')),
                                       position=position(kwargs.get('position_ms')),
-                                      **self.target(kwargs.get('track_id'), kwargs.get('queue_item_id')))
+                                       **self.target(kwargs.get('track_id'), kwargs.get('queue_item_id')))
+                    elif name in ('_play_locked', '_start_playback'):
+                        key = 'start_position_ms' if name == '_start_playback' else 'position_ms'
+                        fields = dict(requestedStart=position(args[0] if args else kwargs.get(key, 0)))
                     self.emit(name + '_entered', **fields)
                     outcome = 'error'
                     try:

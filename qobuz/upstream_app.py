@@ -24,6 +24,7 @@ import qobuz_proxy.speaker as speaker_module
 
 from .upstream_backend import CompanionClient, DeferredRoomBackend, operation
 from .upstream_diagnostics import StateDiagnostics
+from .room_names import room_display_name
 
 
 def load_runtime(data_dir, lan_address):
@@ -47,6 +48,8 @@ def load_runtime(data_dir, lan_address):
             raise ValueError('duplicate_room_or_port_collision')
         ids.add(room['id'])
         ports.update((room['port'], audio_port))
+    # Runtime-only compatibility: preserve config.json/credentials and UUID/ports.
+    rooms = [dict(room, name=room_display_name(room)) for room in rooms]
     runtime_dir = data_dir / 'upstream-first'
     # Prefer a token refreshed by this candidate; never replace original files.
     credential_path = runtime_dir / 'credentials.json'

@@ -6,6 +6,24 @@ import test_partial_playback_state as fixtures
 
 
 class SeekAcknowledgementTests(unittest.IsolatedAsyncioTestCase):
+    async def test_split_stopped_snapshot_retains_nonzero_start_until_play(self):
+        replay = self.fixture()
+        await replay.dispatch('101', 3, 60000)
+        replay.backend.play.assert_not_awaited()
+        replay.backend.seek.assert_not_awaited()
+        self.assertLess(replay.player.current_position_ms, 10000)
+        await replay.dispatch(mode=2)
+        replay.backend.seek.assert_awaited_once_with(60000)
+        self.assertIsNone(replay.player._pending_start_position_ms)
+
+    async def test_split_start_offset_is_revoked_by_new_authority(self):
+        replay = self.fixture()
+        await replay.dispatch('101', 3, 60000)
+        replay.player.invalidate_pending_commands()
+        await replay.dispatch(mode=2)
+        replay.backend.seek.assert_not_awaited()
+        self.assertIsNone(replay.player._pending_start_position_ms)
+
     def fixture(self):
         replay = fixtures.PartialPlaybackStateTests()
         replay.setup_player()
