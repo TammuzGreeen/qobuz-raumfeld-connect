@@ -47,9 +47,9 @@ without appending ID fragments. Regression tests use synthetic names only.
 
 ## Deployment/publication boundary
 
-Build and offline tests are preparation only. The running beta, storage, existing
-tags and rollback images remain unchanged until separate correction deployment
-approval. No agent speaker-changing tests are authorized here. After deployment,
+Build and offline tests were preparation only; deployment required the separate
+approval recorded below. Existing tags and rollback images remain unchanged.
+No agent speaker-changing tests are authorized here. After deployment,
 verify the logical label in Qobuz (cached old mDNS entries may need discovery
 refresh), then user-operate Spotify → fresh Qobuz selection with a nonzero paused
 position → explicit Play. Confirm audible position, steady connection, no source
@@ -76,6 +76,43 @@ reclamation and existing paused/playing seek behavior on the exact candidate.
   ID suffixes. Start-offset diagnostics expose absent/zero/positive categories only,
   never position values, track IDs, URLs, household identifiers or session tokens.
 
-No new candidate deployment or hardware-control test has occurred. The current
-beta remains running with its known bugs until separately approved update and
-user-operated checks. No beta tag/release replacement or merge to main.
+The candidate was subsequently deployed with separate user approval; see below.
+No beta tag/release replacement or merge to main.
+
+## Approved deployment — 2026-10-15
+
+User explicitly approved deploying this correction candidate after offline review.
+Deployed the image above once through app.update, after checksum/source/architecture
+verification. Imported config digest matches
+`sha256:e998c73001369cfe57e658bf9980196b62c9b8dc4b591d8d4c88e55da29c0119`.
+Retained fresh private Compose/config/runtime snapshots, complete persistent-storage
+backup and exported all-room beta image, plus previous rollback images.
+
+Verified healthy/authenticated, zero restarts, expected player/SDK hashes and six
+configured/discovered logical rooms. Credentials, optional token cache and
+config.json bytes are unchanged. Environment, mounts, host networking, physical
+membership, UUIDs/ports and unrelated running containers are preserved. Zero
+startup zone-creation or transport commands; no agent speaker-changing controls.
+
+All six discovery/audio listeners respond, and independent LAN mDNS observation
+confirms all expected stable device UUIDs and ports. The original room now advertises
+the logical Qobuz label without its suffix; the other five names are unchanged.
+The original room's upstream web-UI ID (a display-name-derived slug) changes as
+expected; this is distinct from the unchanged Qobuz discovery device UUID.
+Verification initially compared that UI slug as if it were a stable device ID;
+inspection of pinned Speaker.get_status confirmed the distinction. Verification
+also corrected its mDNS TXT field lookup to the pinned SDK's actual `Name` key.
+Neither read-only verification correction caused a second deployment or transport
+write. Final checks passed against actual UUID/Name/port advertisements.
+
+Actual audible automatic nonzero start, steady handoff/paused-seek behavior and the
+phone-visible label remain user-operated checks pending on this exact candidate.
+Overall `hardwareVerified: false`; earlier beta hardware passes are not copied onto
+this image. No change to main, existing prerelease tags or release assets.
+
+Rollback: stop the test app and restore the new private pre-update Compose using
+`raumfeld-connect:upstream-first-all-rooms-review` with pull_policy never through
+the supported app.update dictionary operation. No room-config migration occurred,
+so config.json needs no restoration. Preserve refreshed credentials/cache; the
+complete volume backup is disaster recovery only. Earlier seeking-capable/current
+and original preview rollback images remain available separately.

@@ -1131,3 +1131,22 @@ Implementation `1917f07001545ba01bb655a496af29eafaa4f9ba`, local candidate
 offline startup/label/storage smoke pass. See POST_BETA_FIX_REVIEW.md for hashes,
 evidence and candidate acceptance plan. Running beta/rollback/tag/main unchanged;
 correction deployment and audible nonzero-start acceptance await separate approval.
+
+## Approved post-beta correction deployment
+
+User approved deployment. Imported verified candidate `1917f07`, config digest
+`sha256:e998c73001369cfe57e658bf9980196b62c9b8dc4b591d8d4c88e55da29c0119`,
+as `raumfeld-connect:upstream-first-beta-fixes-review` once via app.update. New
+private pre-update Compose/config/runtime/storage backups and all-room beta image
+export retained with older rollback images. Healthy/authenticated, zero restarts;
+credential/cache/config hashes, environment/mounts/host network, room membership
+and unrelated containers preserved. Installed player and SDK hashes match candidate.
+
+Six logical rooms discovered; six LAN mDNS UUID/Name/port advertisements verified,
+discovery/audio listeners respond. Original room's legacy suffix removed; others
+unchanged. Stable device UUID is unchanged; web UI uses a name-derived slug, which
+changes on rename. Read-only verifier adjusted for this and actual TXT Name field;
+no redeployment or transport writes during verification. Startup zone creation and
+transport commands: zero. No agent speaker-changing tests. Audible nonzero starts,
+phone-visible label and candidate handoff/seek acceptance pending user-operated
+checks. Full hardwareVerified false; beta/preview tags and main unchanged.
