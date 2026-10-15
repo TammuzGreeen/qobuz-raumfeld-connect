@@ -54,3 +54,28 @@ verify the logical label in Qobuz (cached old mDNS entries may need discovery
 refresh), then user-operate Spotify → fresh Qobuz selection with a nonzero paused
 position → explicit Play. Confirm audible position, steady connection, no source
 reclamation and existing paused/playing seek behavior on the exact candidate.
+
+## Candidate and offline results
+
+- Implementation revision: `1917f07001545ba01bb655a496af29eafaa4f9ba`.
+- Local amd64 image: `raumfeld-connect:upstream-first-beta-fixes-review`.
+- Local OCI index:
+  `sha256:f6e93f67d1f9a3eedeee66b278818fcdb22912038e72ceab3421924c14f0fc90`.
+- Docker image config digest (distinct from index):
+  `sha256:e998c73001369cfe57e658bf9980196b62c9b8dc4b591d8d4c88e55da29c0119`.
+- Private image archive SHA-256:
+  `74923a9fad46ebf79e05a689ccede3c214be5446c391f865f77a94e5c17ea1d1`.
+- Installed patched player SHA-256:
+  `7b914d0e0c58eea39ab6d5195c9c6871eb59ec59093b1d4485104b24342a0910`.
+- 200 Python tests (188 project + twelve standalone upstream contribution tests),
+  117 serial Node tests, 34 packaged Node observation/boundary tests and six original
+  upstream serialization tests passed on the applicable fixtures/build.
+- Six-room offline supervisor smoke passed, including legacy label normalization in
+  real upstream speaker status, stable storage, health/startup and clean shutdown.
+  No startup creation or transport writes. Future setup labels also tested without
+  ID suffixes. Start-offset diagnostics expose absent/zero/positive categories only,
+  never position values, track IDs, URLs, household identifiers or session tokens.
+
+No new candidate deployment or hardware-control test has occurred. The current
+beta remains running with its known bugs until separately approved update and
+user-operated checks. No beta tag/release replacement or merge to main.

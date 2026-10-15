@@ -18,6 +18,8 @@ with tempfile.TemporaryDirectory() as directory:
     root = Path(directory)
     config = {'rooms': [{'id': 'synthetic-room-'+str(i), 'name': 'Example Qobuz '+str(i), 'port': 8790+i}
                         for i in range(6)], 'quality': 6}
+    config['rooms'][0]['name'] = 'Example Qobuz ' + config['rooms'][0]['id'][-6:]
+    expected_names = ['Example Qobuz'] + [room['name'] for room in config['rooms'][1:]]
     path = root / 'config.json'
     path.write_text(json.dumps(config))
     before = path.read_bytes()
@@ -31,7 +33,9 @@ with tempfile.TemporaryDirectory() as directory:
             try:
                 with urllib.request.urlopen('http://127.0.0.1:8788/api/status', timeout=1) as response:
                     assert response.status == 200
-                    assert len(json.load(response)['speakers']) == 6
+                    speakers = json.load(response)['speakers']
+                    assert len(speakers) == 6
+                    assert [speaker['name'] for speaker in speakers] == expected_names
                 result = subprocess.run([sys.executable, 'docker/healthcheck.py'], env=env,
                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 if result.returncode == 0:

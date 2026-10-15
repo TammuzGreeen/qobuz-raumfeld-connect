@@ -1107,3 +1107,27 @@ verification uses read-only source requests, no agent speaker-changing controls.
 Source/test/config-example/docs privacy-reviewed and pushed with remote verification;
 main/tag untouched. Every candidate per-room audible/control/handoff hardware check
 remains pending. See ALL_ROOMS_HANDOFF_REVIEW.md for plan and private rollback steps.
+
+## Post-beta correction candidate — not deployed
+
+After user all-room beta acceptance and immutable beta publication, user requested
+fixes for automatic nonzero start after Spotify and the original room's apparent
+release suffix. Read-only diagnostics establish PAUSED positive-position snapshot
+while STOPPED, ignored Seek, then position-less PLAYING start at zero. Actual
+pinned handler/player/DLNA replay reproduces the missing start Seek on beta code.
+Fourth hash-checked player patch retains desired stopped/load-only offsets until
+explicit Play, clearing on source/session/selection/endpoint/track/occurrence/Stop
+invalidation. Existing one acknowledged start Seek applies it once; no early
+position success, arbitrary timing, transport retry or authority bypass.
+
+Naming cause is old setup's last-six-room-ID suffix, not a release tag. Normalize
+only that exact generated suffix in runtime config; stable IDs/UUIDs/ports, custom
+names, stored config and credentials stay unchanged. Future setup omits ID suffix.
+Private household names/IDs/logs remain excluded from publication.
+
+Implementation `1917f07001545ba01bb655a496af29eafaa4f9ba`, local candidate
+`raumfeld-connect:upstream-first-beta-fixes-review`. 200 Python, 117 serial Node,
+34 packaged Node and six original upstream serialization tests plus six-room
+offline startup/label/storage smoke pass. See POST_BETA_FIX_REVIEW.md for hashes,
+evidence and candidate acceptance plan. Running beta/rollback/tag/main unchanged;
+correction deployment and audible nonzero-start acceptance await separate approval.
