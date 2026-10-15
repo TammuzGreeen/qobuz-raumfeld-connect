@@ -1,5 +1,17 @@
 # All-room upstream-first handoff test
 
+## Later user acceptance and beta publication
+
+User confirmed original-room paused/active Spotify → Qobuz and Qobuz → Spotify
+handoffs, audible playback and steady connection, Next, pause/resume, playing and
+paused seek, app/speaker volume, and playback in different rooms. User then reported
+all rooms work for now and authorized beta release. This supersedes the pending
+user observations below, without inventing detailed per-room test matrices.
+Known remaining bug: automatic nonzero track start after Spotify handoff starts at
+zero; manual seeking works. See BETA_RELEASE.md. Overall full hardware acceptance
+and scrobbling remain deferred; no playback implementation/deployment changed for
+publication.
+
 This is later experimental work, not replacement of the preserved preview tag.
 No account scrobbling acceptance is implied; overall `hardwareVerified: false`.
 Household IDs/names, topology/source snapshots, credentials and deployment config

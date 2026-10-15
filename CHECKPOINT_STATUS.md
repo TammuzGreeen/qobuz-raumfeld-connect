@@ -3,6 +3,11 @@
 **Working preview; seeking outstanding; not complete hardware acceptance.**
 
 Later seeking candidate work is described in [SEEK_REVIEW.md](SEEK_REVIEW.md).
+Current beta acceptance: [BETA_RELEASE.md](BETA_RELEASE.md). User reports all rooms
+working, original-room handoff/control checks and cross-room playback passed.
+Known post-Spotify automatic mid-track start bug remains; manual seeking works.
+The following checkpoint text records earlier observations.
+
 Current later deployment is the [all-room test](ALL_ROOMS_HANDOFF_REVIEW.md),
 `1df99d2`: six rooms discovered/advertised, fresh source reads pass; candidate
 hardware handoff/control tests remain pending. The paragraphs below preserve
