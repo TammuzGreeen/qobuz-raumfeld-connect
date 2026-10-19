@@ -1,0 +1,5 @@
+wire/target/
+data/
+config.json
+*.der
+gui-token

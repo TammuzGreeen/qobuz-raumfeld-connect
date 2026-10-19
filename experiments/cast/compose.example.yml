@@ -1,0 +1,23 @@
+services:
+  cast-diagnostic:
+    # Build locally. Never substitute production latest or share production /data.
+    image: raumfeld-connect:cast-diagnostic-review
+    pull_policy: never
+    profiles: [cast-experiment]
+    network_mode: host
+    read_only: true
+    user: "10001:10001"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp]
+    environment:
+      CAST_EXPERIMENT: "1"
+      CAST_BIND_ADDRESS: "${CAST_BIND_ADDRESS:?explicit local IPv4 required}"
+      CAST_PORT: "8809"
+      CAST_ADVERTISE: "1"
+      CAST_OBSERVE_ROOMS: "0"
+    volumes:
+      - cast-experiment-data:/cast-data
+    restart: "no"
+volumes:
+  cast-experiment-data:
