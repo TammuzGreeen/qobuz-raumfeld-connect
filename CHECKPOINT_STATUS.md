@@ -3,6 +3,11 @@
 **Working preview; seeking outstanding; not complete hardware acceptance.**
 
 Later seeking candidate work is described in [SEEK_REVIEW.md](SEEK_REVIEW.md).
+Current stable release scope: [STABLE_RELEASE.md](STABLE_RELEASE.md), v1.0.0.
+User accepted the post-beta start/name corrections on deployed `1917f07`; release
+publication changes version/docs only, not deployment. The checkpoints below are
+historical and do not override that acceptance.
+
 Current beta acceptance: [BETA_RELEASE.md](BETA_RELEASE.md). User reports all rooms
 working, original-room handoff/control checks and cross-room playback passed.
 Known post-Spotify automatic mid-track start bug remains; manual seeking works.

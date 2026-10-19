@@ -1,21 +1,18 @@
-# Raumfeld Connect — upstream-first beta
+# Raumfeld Connect 1.0
 
-**Current branch development:** [all-room handoff correction/test](ALL_ROOMS_HANDOFF_REVIEW.md)
-extends upstream-first to independent logical rooms and corrects cached Spotify
-evidence falsely revoking activation. The older tagged preview below is unchanged;
-candidate `1df99d2` is deployed with all six supported rooms discovered/advertised.
-User reports all rooms working. See the
-[beta acceptance and known limitation](BETA_RELEASE.md): post-Spotify automatic
-mid-track starts still restart at zero; manual seeking works.
-Post-beta correction work for that start-position bug and the original room's
-legacy ID-suffixed label is tracked in [POST_BETA_FIX_REVIEW.md](POST_BETA_FIX_REVIEW.md).
-Correction candidate `1917f07` is separately approved and deployed. User confirmed
-the requested mid-track-start and room-label checks pass on 2026-10-19; everything
-is currently working. The beta tag is unchanged; broader untested cases remain open.
+**First stable release: [v1.0.0](https://github.com/TammuzGreeen/qobuz-raumfeld-connect/releases/tag/v1.0.0).**
+Qobuz Connect for independent ungrouped Raumfeld rooms, with native Spotify source
+protection. User reports all six rooms working, with source handoffs, playback
+controls, seeking and volume tested. Post-Spotify mid-track starts and the original
+room's logical name are now user-confirmed working on deployed `1917f07`.
 
-Qobuz Connect for independent ungrouped Raumfeld rooms, with native Spotify source protection.
-The current beta is `upstream-first-beta-2026-10-15`; its deployed implementation
-is `1df99d2`. The historical preview below is retained unchanged for rollback.
+See [1.0 release scope, setup and limitations](STABLE_RELEASE.md). This is a
+source-only release of the accepted upstream-first implementation plus version/
+documentation updates; it does not replace the running image or publish a registry
+image. Build with `PLAYBACK_PATH=upstream_first` explicitly. Beta/preview tags and
+private rollback images remain unchanged. Grouped playback and scrobbling acceptance
+are not claimed; broader reconnection/rebinding and detailed per-room regression
+coverage remain outstanding.
 
 ## Historical preview (not current beta status)
 

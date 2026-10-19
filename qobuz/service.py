@@ -115,7 +115,7 @@ class Service:
             'receiverErrors': dict(self.receiver_errors),
             'receiverConnections': {id: receiver.diagnostics() for id, receiver in self.receivers.items()},
             'connectEvents': self.connect_diagnostics.snapshot(),
-            'advertised': list(self.receivers), 'version': '0.2.0'})
+            'advertised': list(self.receivers), 'version': '1.0.0'})
 
     async def configure(self, request):
         data = await request.json()
