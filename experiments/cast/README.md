@@ -4,7 +4,8 @@ Branch `development/chromecast-receiver`, created from the verified remote stabl
 tag `v1.0.0` at `c5b87d52937fbe62d983da5a4863ff2c8a1e43ba`, not from the
 then-current experiment branch. Working tree was clean. Stable/default launchers,
 production configuration/storage/credentials, private rollback images and stable
-tags are not changed. No hardware deployment is authorized by this experiment.
+tags are not changed. Initial publication did not authorize deployment. The user
+subsequently approved an isolated diagnostic installation on 2026-10-19; see below.
 
 Tested candidate source: **`5f6a2562cbbc3f0e975dc75a39032663d84d419b`**.
 Local-only amd64 image: **`raumfeld-connect:cast-diagnostic-5f6a2562cbbc`**.
@@ -108,10 +109,11 @@ source-neutral, retain requested offsets separately from acknowledged applied on
 defer paused seeks until explicit Play and invalidate old operations on member/source/
 endpoint change, with no lease/replay timer or automatic Spotify reclamation.
 
-## Hardware checks — all pending, deployment approval required
+## Android/speaker checks — pending
 
-1. Approve isolated diagnostic installation only, with distinct writable storage and
-   nonconflicting ports. Do not mount production /data or start a second Qobuz process.
+1. Isolated diagnostic installation is now approved and completed, with distinct
+   writable storage and nonconflicting ports. Production /data is not mounted and
+   no second Qobuz process is started. Android/transport acceptance is still pending.
 2. Open unchanged ABS Android Cast picker; record app version and whether the one
    experimental target appears. Discovery alone is not SDK acceptance.
 3. Select it; record connection failure/result and categorical auth/launch counters.
@@ -204,8 +206,47 @@ Spotify/Qobuz handoff or simultaneous household playback acceptance.
 All outgoing added/changed files and experiment commits were reviewed for private
 configuration, tokens, signed URLs, household IDs and raw logs; only synthetic
 examples and public source/image identities are included. Raw research, build/test
-logs and image archive stay outside Git. No registry image, release or production
-deployment is published. Stable main/tags are not merge/push targets.
+logs and image archive stay outside Git. No registry image, release or replacement
+production playback deployment is published. The separately approved diagnostic
+installation is described below. Stable main/tags are not merge/push targets.
+
+## Approved diagnostic installation — 2026-10-19
+
+The user requested deployment and a bridge to one named room. The pinned diagnostic
+image was installed as a **separate custom app**, `raumfeld-cast-experiment`, using
+one `app.create` call with a parsed Compose object, not an update to the stable app.
+The requested logical room was uniquely matched against read-only live inventory
+and existing configured IDs; household identifiers/config remain private. Its
+stereo membership is untouched. This config selects a room only: **the requested
+speaker bridge is not implemented and no audible casting is claimed**. Neither
+device trust nor application compatibility can be supplied by choosing a room.
+
+Verified after installation: RUNNING/healthy, zero restarts, exactly one discoverable
+experimental mDNS service on advertised port 8809, loopback GUI HTTP responds,
+selected room observed available, observed individual topology, media/grouping
+disabled. This is an actual mDNS service lookup from the host, not an Android
+discovery or connection pass. Official ABS Android testing remains pending.
+
+Private new storage contains only experiment config/token/status; the production
+volume is not mounted. Stable container identity/image/start time/restart count,
+environment, mounts and stored config were verified unchanged; other app states
+also match preflight. No speaker source/transport/volume/grouping mutation was sent.
+Raw inventories, container/config snapshots, archive/import/Compose records and
+verification are kept privately outside Git.
+
+Access: use the existing NAS SSH account and `ssh -N -L
+8799:127.0.0.1:8799 USER@NAS_HOST`, then open `http://127.0.0.1:8799` on the SSH
+client machine. In another SSH session, privately read the new app container's
+`/cast-data/gui-token` (not the stable app's token), enter it in the GUI and click
+**Read observed status**. No LAN GUI exposure or token in a browser URL is needed.
+The Cast picker target is **Raumfeld Cast Experiment**. Expected diagnostic outcome
+is failed/unavailable connection or application, never successful audio playback.
+
+Installed-app rollback: stop **only** `raumfeld-cast-experiment` in TrueNAS Apps.
+Retain its storage and all stable/rollback images. This removes the advertisement
+without restarting stable playback or sending any speaker command. Because this
+install is middleware-managed, use its app controls rather than the generic
+standalone Compose recipe below. No room/topology restore is needed.
 
 ## Reproducible local build (not installation)
 
