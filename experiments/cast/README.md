@@ -6,6 +6,11 @@ then-current experiment branch. Working tree was clean. Stable/default launchers
 production configuration/storage/credentials, private rollback images and stable
 tags are not changed. No hardware deployment is authorized by this experiment.
 
+Tested candidate source: **`5f6a2562cbbc3f0e975dc75a39032663d84d419b`**.
+Local-only amd64 image: **`raumfeld-connect:cast-diagnostic-5f6a2562cbbc`**.
+The later publication checkpoint changes documentation/records only; its commit
+is the branch HEAD. Exact image/base/archive identities are in [checkpoint.json](checkpoint.json).
+
 ## Assessment: blocked before legitimate stock Android media reception
 
 Source inspection identifies a device-authentication trust boundary, **not a live
@@ -24,6 +29,15 @@ proves stock SDK compatibility. Legitimate next options: investigate a licensed
 Cast receiver integration with the vendor/Google, or an actual certified Cast
 device with an authorized receiver/forwarding integration (separate hardware/audio
 path, not this emulator). These are options, not established solutions.
+
+Primary trust-boundary evidence: pinned Open Screen
+[`boringssl_trust_store.cc`](https://chromium.googlesource.com/openscreen/+/978e90d34a539bb6580634e1e67b0d673869f11c/cast/common/certificate/boringssl_trust_store.cc)
+defines Cast Root CA and Eureka Root CA anchors;
+[`cast_cert_validator.cc`](https://chromium.googlesource.com/openscreen/+/978e90d34a539bb6580634e1e67b0d673869f11c/cast/common/certificate/cast_cert_validator.cc)
+requires a valid device certificate path. The selected emulator's pinned
+[`crypto.rs`](https://github.com/yukarikaname/openchromecast/blob/0cc510b2e0fd8c484029ccf8ab08f527d6ad752c/src/crypto.rs)
+documents the self-signed device-auth limitation. Our fixture does not import or
+alter these Google trust anchors; its explicit public TLS cert pin is test-local.
 
 ## Evaluated implementations (pins in sources.json)
 
@@ -158,6 +172,41 @@ Read-only topology snapshots are saved only by explicit button/API request, in
 TLS certificates are short-lived (upstream three-day lifetime); restart the
 diagnostic only when approved if expiry impedes later connection testing.
 
+## Verified results and exact compatibility boundary
+
+| Phase | Result at this checkpoint |
+| --- | --- |
+| Discovery | One-target mDNS records/interface/stable-ID unit test passes. No live multicast/Android discovery claim. |
+| Device authentication | Offline TLS framing + signed nonce/certificate exchange passes; signature and changed-nonce failure unit tested. Self-signed auth certificate is not Google-trusted. Sender acceptance explicitly remains `unverified`; no stock Android test performed. |
+| Application launch | `FD1F76C5` and default app reported unavailable; explicit LAUNCH_ERROR tested. No custom receiver host or fake launch success. |
+| Media loading | LOAD rejected; no media URL fetch, audio relay or invented media session. Nonzero-position fixture confirms rejection, not resume support. |
+| Audible playback | Not implemented; listening/phone tests pending, not a pass. |
+| State/control feedback | Diagnostic counters and actual/unknown topology GUI tested. No media position/duration/item, volume, seek, completion or physical-control feedback implementation. |
+
+Offline verification: **4 Rust tests**, **9 experimental Python tests**, packaged
+TLS/framing/auth/app/media/oversized-frame/GUI/storage/shutdown smoke, JS syntax,
+default-disabled launch and synthetic Compose validation all pass. GUI HTTP and
+DOM-safety source checks are not a real browser usability test. All network tests
+ran in `--network none` containers (loopback only), without host discovery or
+speaker commands. The diagnostic fixture keeps TLS validation enabled and pins
+only its generated public test certificate; it is not an Android SDK test.
+
+Stable regression: **188 Python tests** and **117 serial Node tests** pass.
+Initial Python/Node invocations used an inappropriate inherited PLAYBACK_PATH/
+missing dev dependency environment; corrected test-only environment passed without
+source changes. One Node run then reproduced the already documented guarded-path
+short-deadline `ownership_lost` versus `source_not_confirmed` variance; unchanged
+serial rerun passed. No assertion or production code was weakened. Installed
+Qobuz/Raumkernel/shared modules plus patched player/SDK match the stable-base image
+byte-for-byte across **31 files**. This is preservation evidence, not new hardware
+Spotify/Qobuz handoff or simultaneous household playback acceptance.
+
+All outgoing added/changed files and experiment commits were reviewed for private
+configuration, tokens, signed URLs, household IDs and raw logs; only synthetic
+examples and public source/image identities are included. Raw research, build/test
+logs and image archive stay outside Git. No registry image, release or production
+deployment is published. Stable main/tags are not merge/push targets.
+
 ## Reproducible local build (not installation)
 
 Use the verified stable source as base, **not a registry latest image**. The base
@@ -200,6 +249,10 @@ docker run --rm --network none --read-only --tmpfs /tmp \
    image. Leave the stable app, Compose, `/data`, credentials and rollback images
    untouched. Confirm 8799/8809/8817 are unused on the intended test host and there
    is no competing test target. Do not start a second Qobuz supervisor.
+   The prepared private `cast-diagnostic-5f6a2562cbbc.tar` archive has SHA-256
+   `51ea7eba47b80e0c468cdde2bc608a429b3f37c0d33af37dd66f520a70f2bdd4`.
+   After approved transfer, run `sha256sum` against that value, then `docker load
+   -i cast-diagnostic-5f6a2562cbbc.tar`; inspect the loaded revision label before use.
 2. Make a private config from `config.example.json`, with actual configured logical
    room IDs/labels, initially one test room if desired. Store outside Git. No room is
    controlled in this diagnostic, so stable retains speaker ownership throughout.

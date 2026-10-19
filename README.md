@@ -1,5 +1,10 @@
 # Raumfeld Connect 1.0
 
+> **Experimental branch:** [Cast receiver diagnostic](experiments/cast/README.md),
+> disabled by default. Stock Android device authentication is a known trust boundary;
+> Audiobookshelf phone compatibility is not verified. No Cast speaker playback or
+> functional regrouping is claimed. Stable Qobuz launchers remain unchanged.
+
 **First stable release: [v1.0.0](https://github.com/TammuzGreeen/qobuz-raumfeld-connect/releases/tag/v1.0.0).**
 Qobuz Connect for independent ungrouped Raumfeld rooms, with native Spotify source
 protection. User reports all six rooms working, with source handoffs, playback
