@@ -1150,3 +1150,12 @@ no redeployment or transport writes during verification. Startup zone creation a
 transport commands: zero. No agent speaker-changing tests. Audible nonzero starts,
 phone-visible label and candidate handoff/seek acceptance pending user-operated
 checks. Full hardwareVerified false; beta/preview tags and main unchanged.
+
+## Post-beta fixes accepted by user — 2026-10-19
+
+In response to the requested phone-visible name and post-Spotify nonzero-start
+checks without manual seeking, user confirmed checks done and everything currently
+working. Both correction checks pass on deployed `1917f07`; see
+POST_BETA_FIX_REVIEW.md for exact image identity and evidence scope. No inferred
+full per-room regression/reconnection or scrobbling acceptance, no new deployment,
+no tag/release replacement or main merge. Broader hardwareVerified remains false.

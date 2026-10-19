@@ -9,8 +9,9 @@ User reports all rooms working. See the
 mid-track starts still restart at zero; manual seeking works.
 Post-beta correction work for that start-position bug and the original room's
 legacy ID-suffixed label is tracked in [POST_BETA_FIX_REVIEW.md](POST_BETA_FIX_REVIEW.md).
-Correction candidate `1917f07` is now separately approved and deployed; audible
-mid-track start and phone-visible label acceptance are pending. The beta tag is unchanged.
+Correction candidate `1917f07` is separately approved and deployed. User confirmed
+the requested mid-track-start and room-label checks pass on 2026-10-19; everything
+is currently working. The beta tag is unchanged; broader untested cases remain open.
 
 Qobuz Connect for independent ungrouped Raumfeld rooms, with native Spotify source protection.
 The current beta is `upstream-first-beta-2026-10-15`; its deployed implementation

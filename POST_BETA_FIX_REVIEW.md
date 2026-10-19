@@ -105,10 +105,10 @@ also corrected its mDNS TXT field lookup to the pinned SDK's actual `Name` key.
 Neither read-only verification correction caused a second deployment or transport
 write. Final checks passed against actual UUID/Name/port advertisements.
 
-Actual audible automatic nonzero start, steady handoff/paused-seek behavior and the
-phone-visible label remain user-operated checks pending on this exact candidate.
-Overall `hardwareVerified: false`; earlier beta hardware passes are not copied onto
-this image. No change to main, existing prerelease tags or release assets.
+At deployment, audible automatic nonzero start and phone-visible label acceptance
+were pending. The subsequent user result below updates those checks, without
+copying every earlier beta hardware pass onto this image. No change to main,
+existing prerelease tags or release assets.
 
 Rollback: stop the test app and restore the new private pre-update Compose using
 `raumfeld-connect:upstream-first-all-rooms-review` with pull_policy never through
@@ -116,3 +116,16 @@ the supported app.update dictionary operation. No room-config migration occurred
 so config.json needs no restoration. Preserve refreshed credentials/cache; the
 complete volume backup is disaster recovery only. Earlier seeking-capable/current
 and original preview rollback images remain available separately.
+
+## User acceptance — 2026-10-19
+
+After being asked to check the phone-visible room name and Spotify → Qobuz handoff
+at a nonzero track position without manual seeking, the user confirmed: “checks
+done, everything working right now”. Record both requested correction checks as
+passed on deployed implementation `1917f07001545ba01bb655a496af29eafaa4f9ba` and
+the image digest above, with a general current-working observation.
+
+This is user-observed hardware acceptance of these fixes, not a newly captured
+full per-room/control/reconnection matrix or a reporting/account-history/scrobbling
+test. Overall `hardwareVerified: false` remains for that broader outstanding scope.
+No further deployment, speaker controls, release/tag update or merge was performed.
