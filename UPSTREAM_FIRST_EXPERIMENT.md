@@ -1159,3 +1159,21 @@ working. Both correction checks pass on deployed `1917f07`; see
 POST_BETA_FIX_REVIEW.md for exact image identity and evidence scope. No inferred
 full per-room regression/reconnection or scrobbling acceptance, no new deployment,
 no tag/release replacement or main merge. Broader hardwareVerified remains false.
+
+## First stable release 1.0.0 — 2026-10-19
+
+User requested promotion of the accepted corrected version to the first stable
+1.0 release. Publish `v1.0.0` as stable/latest from the working branch; no main
+merge, beta/preview tag replacement, registry upload or deployment change.
+Project/lockfile/status/image version metadata updated to 1.0.0; accepted playback
+implementation remains `1917f07`. STABLE_RELEASE.md records supported independent
+ungrouped-room/CD/Android/amd64 scope, user evidence and remaining limitations.
+No full hardwareVerified/scrobbling certification is inferred from stable status.
+
+Release preparation build `61afaf4` passed frozen dependency installation, 200
+Python, 34 packaged Node tests and six-room offline startup/label/storage smoke.
+117 serial Node tests pass on rerun; initial old guarded deadline-test assertion
+variance documented without weakening test. Playback compatibility/Node modules
+and installed player match accepted deployed image (historical service status
+version is the sole Python runtime difference). Private deployment and rollback
+images unchanged; release contains public source archives only.

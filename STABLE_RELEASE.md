@@ -69,6 +69,22 @@ Prior candidate checks: 200 Python, 117 serial Node, 34 packaged Node boundary t
 six original upstream serialization tests and six-room offline startup/storage/
 label smoke passed. Publication tests are recorded in the release checkpoint.
 
+### 1.0 publication validation
+
+Built amd64 `raumfeld-connect:1.0.0-validation` from release preparation revision
+`61afaf4` with explicit upstream-first and categorical diagnostics enabled. Frozen
+dependency installation passed after synchronized project/lockfile version changes.
+200 Python tests, 34 packaged Node tests and six-room offline supervisor/startup/
+health/storage/label/shutdown smoke passed. Full 117-test serial Node suite passed
+on rerun without changing tests; initial run hit the previously recorded historical
+guarded-path deadline variance (`ownership_lost` versus `source_not_confirmed`).
+This is a known test timing sensitivity, not a claim of a new live playback defect.
+All Python compatibility modules except the status-version-only historical
+service.py, and all Node runtime modules, match the accepted deployed image
+byte-for-byte. Installed player hash matches the value above. The validation build
+was neither deployed nor published as a registry image; no new audible acceptance
+is inferred from building it.
+
 Private pre-update Compose/config/storage backups and the accepted image, all-room
 beta image and older seeking-capable/original preview rollback images are retained.
 To roll back a separately approved future deployment, stop the app and restore the
