@@ -1,5 +1,9 @@
 # Raumfeld Connect 1.0
 
+> **Offsite troubleshooting candidate:** [setup and advertisement diagnostics](SETUP_DIAGNOSTICS.md).
+> This branch adds actionable storage errors and per-room advertisement blockers;
+> it does not yet establish the cause of an offsite discovery failure.
+
 **First stable release: [v1.0.0](https://github.com/TammuzGreeen/qobuz-raumfeld-connect/releases/tag/v1.0.0).**
 Qobuz Connect for independent ungrouped Raumfeld rooms, with native Spotify source
 protection. User reports all six rooms working, with source handoffs, playback
