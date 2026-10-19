@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>Experimental Cast diagnostic</title>
+<style>body{font:16px system-ui;max-width:60rem;margin:2rem auto;padding:1rem}label,button{margin:.5rem}pre{white-space:pre-wrap}strong{color:#a23}</style>
+<h1>Experimental Cast receiver</h1>
+<p><strong>Diagnostic checkpoint, not a working audiobook receiver.</strong>
+Google device authentication and Audiobookshelf application support are unresolved.
+No speaker playback or topology changes can be sent.</p>
+<label>Local GUI token <input id="token" type="password" autocomplete="off"></label>
+<button id="refresh">Read observed status</button>
+<p>Selected logical room (preparation only): <select id="room" aria-label="Individual test room"></select>
+<button id="select">Select test room</button></p>
+<label><input id="group" type="checkbox" disabled> Group all rooms <b>(experimental — blocked)</b></label>
+<p>Playback must be confirmed stopped in every participating room before any future
+grouping change. Even when stopped, native group/ungroup is not enabled at this
+compatibility checkpoint. Stereo pairs will not be split.</p>
+<p id="grouping">Observed grouping: unknown. Pending: false.</p>
+<ul id="rooms"></ul>
+<button id="snapshot">Save private observed topology for recovery</button>
+<p>No automatic recovery/regrouping on refresh or restart.</p>
+<pre id="result" role="status">Enter the isolated GUI token to view private observations.</pre>
+<script src="/ui.js"></script></html>
