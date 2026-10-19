@@ -67,7 +67,7 @@ fn json_response(msg: &CastMessage) -> Result<Option<CastMessage>> {
             } else if let Some(id) = payload["appId"].as_str() {
                 availability.insert(id.to_owned(), json!("APP_UNAVAILABLE"));
             }
-            json!({"type":"RECEIVER_STATUS", "requestId":rid, "availability":availability})
+            json!({"type":"GET_APP_AVAILABILITY", "requestId":rid, "availability":availability})
         }
         (RECEIVER, "LAUNCH") => json!({"type":"LAUNCH_ERROR", "requestId":rid,
             "reason":"NOT_FOUND"}),
@@ -99,18 +99,27 @@ fn auth_response(msg: &CastMessage, identity: &Identity) -> Result<CastMessage> 
 
 async fn connection(tcp: TcpStream, acceptor: TlsAcceptor, identity: Arc<Identity>, state: Arc<State>) -> Result<()> {
     state.count("tcpAccepted").await?;
-    let mut stream = tokio::time::timeout(Duration::from_secs(10), acceptor.accept(tcp)).await??;
+    let mut stream = match tokio::time::timeout(Duration::from_secs(10), acceptor.accept(tcp)).await {
+        Ok(Ok(stream)) => stream,
+        _ => { state.count("tlsFailedOrTimedOut").await?; return Err(anyhow::anyhow!("tls_failed")); }
+    };
     state.count("tlsEstablished").await?;
     loop {
         let size = tokio::time::timeout(Duration::from_secs(60), stream.read_u32()).await?? as usize;
-        ensure!(size > 0 && size <= MAX_FRAME, "frame_size");
+        if size == 0 || size > MAX_FRAME {
+            state.count("frameSizeRejected").await?;
+            return Err(anyhow::anyhow!("frame_size"));
+        }
         let mut bytes = vec![0; size];
         tokio::time::timeout(Duration::from_secs(10), stream.read_exact(&mut bytes)).await??;
         let msg = CastMessage::decode(bytes.as_slice())?;
         ensure!(msg.source_id.len() <= 256 && msg.destination_id.len() <= 256, "id_size");
         let response = if msg.namespace == AUTH {
             state.count("authChallengeReceived").await?;
-            Some(auth_response(&msg, &identity)?)
+            match auth_response(&msg, &identity) {
+                Ok(response) => Some(response),
+                Err(error) => { state.count("authChallengeRejectedOrMalformed").await?; return Err(error); }
+            }
         } else {
             if msg.namespace == RECEIVER {
                 state.count("receiverMessageReceived").await?;
@@ -194,6 +203,7 @@ mod tests {
     }
     #[test]
     fn auth_challenge_is_bound_but_not_trusted() {
+        use rsa::{pkcs8::DecodePrivateKey, signature::Verifier};
         let identity = Identity::generate().unwrap();
         let auth = DeviceAuthMessage { challenge: Some(AuthChallenge { sender_nonce: Some(vec![7;16]),
             hash_algorithm: Some(HashAlgorithm::Sha256 as i32), signature_algorithm: Some(1) }), ..Default::default() };
@@ -204,6 +214,26 @@ mod tests {
         assert_eq!(decoded.client_auth_certificate, identity.auth_cert_der());
         assert!(decoded.intermediate_certificate.is_empty());
         assert!(!decoded.signature.is_empty());
+        let key = rsa::RsaPrivateKey::from_pkcs8_der(identity.tls_private_key_der().unwrap().secret_der()).unwrap();
+        let verifier = rsa::pkcs1v15::VerifyingKey::<rsa::sha2::Sha256>::new(key.to_public_key());
+        let mut signed = vec![7;16];
+        signed.extend_from_slice(identity.tls_cert_der());
+        let signature = rsa::pkcs1v15::Signature::try_from(decoded.signature.as_slice()).unwrap();
+        assert!(verifier.verify(&signed, &signature).is_ok());
+        signed[0] ^= 1;
+        assert!(verifier.verify(&signed, &signature).is_err());
         assert!(auth_response(&CastMessage::default(), &identity).is_err());
+    }
+
+    #[test]
+    fn unsupported_or_malformed_auth_never_claims_acceptance() {
+        let identity = Identity::generate().unwrap();
+        for (nonce, hash, signature) in [(vec![], 1, 1), (vec![1;16], 0, 1),
+            (vec![1;16], 1, 2), (vec![1;1025], 1, 1)] {
+            let auth = DeviceAuthMessage { challenge: Some(AuthChallenge { sender_nonce: Some(nonce),
+                hash_algorithm: Some(hash), signature_algorithm: Some(signature) }), ..Default::default() };
+            let msg = CastMessage { payload_binary: Some(auth.encode_to_vec()), ..Default::default() };
+            assert!(auth_response(&msg, &identity).is_err());
+        }
     }
 }

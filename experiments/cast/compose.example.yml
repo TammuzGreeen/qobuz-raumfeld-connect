@@ -1,7 +1,7 @@
 services:
   cast-diagnostic:
     # Build locally. Never substitute production latest or share production /data.
-    image: raumfeld-connect:cast-diagnostic-review
+    image: "${CAST_IMAGE:?set the uniquely tagged local diagnostic image}"
     pull_policy: never
     profiles: [cast-experiment]
     network_mode: host
@@ -21,3 +21,4 @@ services:
     restart: "no"
 volumes:
   cast-experiment-data:
+    name: raumfeld-cast-experiment-data

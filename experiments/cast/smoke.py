@@ -88,6 +88,15 @@ def main():
                 assert process.poll() is None and time.monotonic()<deadline
                 time.sleep(.1)
             public_der=(data/'diagnostic-tls.der').read_bytes()
+            # A normal system TLS trust store does NOT trust this identity.
+            # This is not a test of Google's separate device-auth trust store.
+            with socket.create_connection(('127.0.0.1',8809),timeout=5) as tcp:
+                try:
+                    ssl.create_default_context().wrap_socket(tcp,server_hostname='OpenChromecast')
+                except ssl.SSLCertVerificationError:
+                    pass
+                else:
+                    raise AssertionError('unexpected_system_tls_trust')
             # Fixture pins its own generated PUBLIC certificate. TLS chain and
             # hostname verification stay enabled; no Android/Google trust altered.
             context=ssl.create_default_context(cadata=ssl.DER_cert_to_PEM_cert(public_der))
@@ -102,12 +111,17 @@ def main():
                     assert auth[5]==nonce and auth[2]==public_der
                     result=exchange(stream,namespace+'receiver',{'type':'GET_APP_AVAILABILITY',
                         'requestId':1,'appId':['FD1F76C5','CC1AD845']})
+                    assert result['type']=='GET_APP_AVAILABILITY'
                     assert set(result['availability'].values())=={'APP_UNAVAILABLE'}
                     result=exchange(stream,namespace+'receiver',{'type':'LAUNCH','requestId':2,'appId':'FD1F76C5'})
                     assert result['type']=='LAUNCH_ERROR'
                     result=exchange(stream,namespace+'media',{'type':'LOAD','requestId':3,'currentTime':7200,
                         'media':{'contentId':'https://audio.example.test/DO_NOT_LOG?token=synthetic'}})
                     assert result['type']=='INVALID_REQUEST' and 'status' not in result
+            with socket.create_connection(('127.0.0.1',8809),timeout=5) as tcp:
+                with context.wrap_socket(tcp,server_hostname='OpenChromecast') as stream:
+                    stream.sendall(struct.pack('!I',65537))
+                    assert stream.recv(1)==b''
             def api(path, body=None):
                 request=urllib.request.Request('http://127.0.0.1:8799/api/'+path,
                     data=None if body is None else json.dumps(body).encode(),
@@ -122,6 +136,8 @@ def main():
             assert state['wire']['counters']['authResponseSentNotAccepted']==1
             assert state['wire']['counters']['applicationLaunchRejected']==1
             assert state['wire']['counters']['mediaRejected']==1
+            assert state['wire']['counters']['frameSizeRejected']==1
+            assert state['wire']['counters']['tlsFailedOrTimedOut']==1
             assert state['grouping']=='unknown' and not state['mediaEnabled']
             assert api('select',{'roomId':'synthetic-room-b'})[0]==200
             status,error=api('group',{'enabled':True})

@@ -5,11 +5,12 @@ import os
 from pathlib import Path
 import tempfile
 import threading
+import types
 import unittest
 from unittest.mock import patch
 
 from control import Blocked, DiagnosticControl
-from service import handler
+from service import advertise, handler
 from http.server import ThreadingHTTPServer
 
 
@@ -106,6 +107,41 @@ class ControlTests(unittest.TestCase):
             finally:
                 server.shutdown();server.server_close();thread.join()
         self.assertNotIn('innerHTML', (Path(__file__).parent/'ui.js').read_text())
+
+    def test_mdns_one_target_explicit_interface_and_persistent_private_identity(self):
+        advertisements = []
+        class ServiceInfo:
+            def __init__(self, *args, **kwargs):
+                self.args, self.kwargs = args, kwargs
+        class Zeroconf:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+            def register_service(self, info):
+                advertisements.append(info)
+        with patch.dict('sys.modules', {'zeroconf':types.SimpleNamespace(ServiceInfo=ServiceInfo, Zeroconf=Zeroconf)}):
+            config = {'targetName':'Synthetic Cast diagnostic'}
+            zc, first = advertise(config, '127.0.0.1', 8809, Path(self.temp.name))
+            _, second = advertise(config, '127.0.0.1', 8809, Path(self.temp.name))
+        self.assertEqual(len(advertisements), 2)  # Exactly one per explicit start.
+        self.assertEqual(first.kwargs['properties']['id'], second.kwargs['properties']['id'])
+        self.assertEqual(first.args[0], '_googlecast._tcp.local.')
+        self.assertEqual(first.kwargs['port'],8809)
+        self.assertEqual(zc.kwargs['interfaces'],['127.0.0.1'])
+        self.assertNotIn('FD1F76C5',json.dumps(first.kwargs,default=str))
+
+    def test_config_rejects_empty_duplicate_and_invalid_membership(self):
+        for config in ({'rooms':[]}, {'rooms':[{'id':'a','name':'A'},{'id':'a','name':'B'}]},
+                       {'rooms':[{'id':'a','name':'A'}],'selectedRoom':'outside'},
+                       {'rooms':[{'id':'a'}]}):
+            with self.assertRaises(ValueError):
+                DiagnosticControl(config,self.temp.name)
+
+    def test_group_requires_boolean_and_never_creates_recovery_files(self):
+        for value in ('true',1,None,[]):
+            with self.assertRaises(Blocked) as caught:
+                self.control.group(value,fixture())
+            self.assertEqual(caught.exception.status,400)
+        self.assertEqual(list(Path(self.temp.name).iterdir()),[])
 
 
 if __name__ == '__main__':

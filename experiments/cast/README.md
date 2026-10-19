@@ -60,6 +60,8 @@ Pinned current Android source (not necessarily the user's installed version):
   Actual account-visible Cast progress (especially phone sleep/disconnect) remains
   unverified, not established by reading the sender.
 
+`PlaybackSession.getContentUri` appends the account token to server media URLs.
+Such URLs must remain private; this experiment never fetches or logs them.
 Source URLs/headers/tokens and long-book Range/format compatibility must be checked
 only after authenticated receiver and ABS application support. Never log URLs or
 media payload/customData. Prefer direct server-to-speaker fetch; any later relay
@@ -68,7 +70,7 @@ avoid arbitrary URL fetch/SSRF and never use phone forwarding as the normal path
 
 ## Implementation boundary and grouping
 
-Prepare an opt-in, isolated diagnostic TLS/auth target and loopback GUI, not a
+Implemented an opt-in, isolated diagnostic TLS/auth target and loopback GUI, not a
 working speaker bridge. It has no speaker mutation client and no credential import
 option. Distinguish TLS/auth response sent from **sender acceptance**, and separate
 discovery, auth, app launch, media load, audible playback and feedback results.
@@ -109,5 +111,128 @@ endpoint change, with no lease/replay timer or automatic Spotify reclamation.
    grouping/ungrouping/stereo preservation and synchronized group audio. Pending.
 
 No hardware compatibility, account progress, audible output or grouping pass is
-claimed. Installation/build/test/recovery details will be added at the implementation
-checkpoint. No stable deployment replacement or production release is part of it.
+claimed. No stable deployment replacement or production release is part of it.
+
+## Architecture and configuration
+
+Only `experiments/cast/service.py` starts the experiment; stable launchers never
+import it. `CAST_EXPERIMENT=0` exits before reading config, opening sockets or
+writing data. The opt-in supervisor starts one Rust TLS listener and one local,
+bearer-authenticated Node **read-only** observer. The Rust listener uses only the
+two hash-checked upstream identity/protobuf modules; Cargo.lock fixes transitive
+dependencies. License texts/manifests are retained in the image. No receiver key
+import exists. Auth signing uses nonce + peer TLS certificate, but signing and
+cryptographic validity are not sender trust or successful device authentication.
+
+The source-neutral `Transport` protocol is preparatory, with **no speaker backend**.
+No Play/Pause/Stop/Seek/volume, room provisioning, native grouping or media relay is
+implemented. Native Spotify cannot be replaced by this diagnostic. Accordingly,
+handoff retirement across group membership is still future work, not claimed from
+the preserved Qobuz regressions. All media commands receive an error, including
+nonzero start/paused seek; no requested offset is reported as confirmed applied.
+
+| Setting | Default / meaning |
+| --- | --- |
+| `CAST_EXPERIMENT` | `0`; exact `1` enables diagnostic only |
+| `CAST_DATA_DIR` | `/cast-data`; isolated writable storage, never production `/data` |
+| `CAST_BIND_ADDRESS` | `127.0.0.1`; explicit local IPv4 for TLS/mDNS, not wildcard |
+| `CAST_PORT` | `8809`; advertised experimental Cast port, verify availability |
+| `CAST_ADVERTISE` | `0`; opt-in `1` advertises exactly one `_googlecast._tcp` target |
+| `CAST_OBSERVE_ROOMS` | `0`; opt-in `1` starts existing read-only Raumkernel discovery/polls |
+| `CAST_API_TOKEN` | Fresh random per start unless explicitly provided; not a production token |
+
+GUI listens **only on 127.0.0.1:8799**, private observer on **127.0.0.1:8817**.
+Experimental config is `/cast-data/config.json`: `targetName`, `selectedRoom` and
+an explicit `rooms` list of `{id,name}` logical-room entries. Use private actual
+logical IDs, never individual stereo members. Example config is synthetic. Selected
+room is RAM-only and has no transport effect. Room discovery/refresh is read-only;
+with observation disabled rooms correctly remain unavailable/unknown. It does not
+share production config, credential cache, discovery/audio listeners or Qobuz
+sessions. UDP 5353 is shared mDNS infrastructure, not a second Qobuz advertisement.
+
+The GUI token is stored mode 0600 at `/cast-data/gui-token`. It is entered manually,
+kept in page RAM, never put into a URL, HTML response, browser storage or logs.
+GUI needs an authenticated status read; no auto request or grouping occurs on load.
+Read-only topology snapshots are saved only by explicit button/API request, in
+`/cast-data/recovery/` with mode 0600 and private logical IDs. No auto restore exists.
+TLS certificates are short-lived (upstream three-day lifetime); restart the
+diagnostic only when approved if expiry impedes later connection testing.
+
+## Reproducible local build (not installation)
+
+Use the verified stable source as base, **not a registry latest image**. The base
+still contains the working Qobuz stack but the experimental CMD never starts it.
+Build on a separate host/context if production must not build anything.
+
+```sh
+BASE=$(mktemp -d /tmp/opencode/cast-base.XXXXXX)
+git archive c5b87d52937fbe62d983da5a4863ff2c8a1e43ba | tar -x -C "$BASE"
+docker build --platform linux/amd64 --build-arg PLAYBACK_PATH=upstream_first \
+  --label org.opencontainers.image.revision=c5b87d52937fbe62d983da5a4863ff2c8a1e43ba \
+  -t raumfeld-connect:cast-stable-base "$BASE"
+REV=$(git rev-parse HEAD)
+IMAGE="raumfeld-connect:cast-diagnostic-$(git rev-parse --short=12 HEAD)"
+docker build --platform linux/amd64 -f experiments/cast/Dockerfile \
+  --build-arg STABLE_IMAGE=raumfeld-connect:cast-stable-base \
+  --label org.opencontainers.image.revision="$REV" -t "$IMAGE" .
+```
+
+Build requires internet for pinned sources/packages. The Rust compiler image and
+openchromecast archive are digest/hash pinned; stable Python/Node locks and Cargo
+lock are retained. Layer/build timestamps mean bit-for-bit digest reproduction is
+not promised. Base npm installation reports existing dependency advisories (3
+moderate, 3 high); no stable dependency upgrade or security certification is claimed.
+
+Offline tests (no host networking, no speakers, no persistent volume):
+
+```sh
+docker run --rm --network none --read-only --tmpfs /tmp \
+  --entrypoint /app/qobuz/.venv/bin/python "$IMAGE" /app/experiments/cast/smoke.py
+docker run --rm --network none --read-only --tmpfs /tmp \
+  -w /app/experiments/cast --entrypoint /app/qobuz/.venv/bin/python "$IMAGE" \
+  -m unittest discover -p 'test_*.py'
+```
+
+## Proposed installation — DO NOT execute without approval
+
+1. Transfer/load the uniquely tagged **local** candidate and verify its revision
+   label/image ID against the checkpoint. Do not pull a similarly named registry
+   image. Leave the stable app, Compose, `/data`, credentials and rollback images
+   untouched. Confirm 8799/8809/8817 are unused on the intended test host and there
+   is no competing test target. Do not start a second Qobuz supervisor.
+2. Make a private config from `config.example.json`, with actual configured logical
+   room IDs/labels, initially one test room if desired. Store outside Git. No room is
+   controlled in this diagnostic, so stable retains speaker ownership throughout.
+3. Seed only the dedicated named volume (default Compose also uses this name):
+
+   ```sh
+   docker volume create raumfeld-cast-experiment-data
+   docker run --rm -i --network none --read-only \
+     -v raumfeld-cast-experiment-data:/cast-data \
+     --entrypoint /app/qobuz/.venv/bin/python "$IMAGE" \
+     -c 'import os,pathlib,sys;os.umask(0o077);pathlib.Path("/cast-data/config.json").write_text(sys.stdin.read())' \
+     < /private/path/cast-config.json
+   ```
+
+4. Set `CAST_IMAGE` to the exact candidate tag and `CAST_BIND_ADDRESS` to a local
+   LAN IPv4. Inspect `docker compose -p cast-experiment -f
+   experiments/cast/compose.example.yml --profile cast-experiment config` privately.
+   Optional `CAST_OBSERVE_ROOMS: "1"` enables only read-only observations; the
+   provided example leaves even that off. After approval, launch with the same
+   Compose arguments plus `up -d`. No blind retries if startup fails.
+5. Read `/cast-data/gui-token` privately from this container, tunnel localhost:8799
+   if remote, and open the loopback GUI. Do not expose the GUI on a LAN reverse
+   proxy or publish private topology/status/log captures. Test phone discovery and
+   attempted connection only; listen/transport tests remain blocked.
+
+## Rollback / recovery
+
+Stop only the experimental Compose project with `docker compose -p cast-experiment
+-f experiments/cast/compose.example.yml --profile cast-experiment down` (retain the
+same required environment values). **Never use `down -v`**, restore the production
+volume or delete rollback images. Keep the dedicated experiment volume privately
+for evidence/recovery. Stopping withdraws the test mDNS target and closes experiment
+ports; it sends no speaker Stop/standby or topology commands. Since this candidate
+cannot change topology or production state, normal rollback needs no room recovery
+or stable app restart. Saved snapshots are evidence, not an executable restore plan;
+any future manual/native topology restore needs separate approval and fresh reads.

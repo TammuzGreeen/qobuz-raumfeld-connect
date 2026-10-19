@@ -6,15 +6,20 @@ RUN mkdir vendor && tar -xzf /source.tar.gz --strip-components=1 -C vendor
 COPY experiments/cast/wire/Cargo.toml experiments/cast/wire/Cargo.lock ./
 COPY experiments/cast/wire/src ./src
 RUN cargo test --locked && cargo build --locked --release
+RUN mkdir /dependency-licenses && cd /usr/local/cargo/registry/src \
+    && find . -type f \( -iname 'license*' -o -iname 'copying*' -o -iname 'notice*' -o -name Cargo.toml \) \
+       -exec cp --parents '{}' /dependency-licenses/ \;
 
 FROM ${STABLE_IMAGE}
 USER root
 COPY --from=wire /build/target/release/raumfeld-cast-diagnostic /usr/local/bin/cast-diagnostic
 COPY --from=wire /build/vendor/LICENSE /app/experiments/cast/OPENCHROMECAST-LICENSE
+COPY --from=wire /dependency-licenses /app/experiments/cast/dependency-licenses
 COPY experiments/cast /app/experiments/cast
 RUN mkdir -p /cast-data && chown 10001:10001 /cast-data
 USER 10001:10001
 ENV CAST_EXPERIMENT=0 CAST_DATA_DIR=/cast-data CAST_BIND_ADDRESS=127.0.0.1 CAST_PORT=8809 CAST_ADVERTISE=0 CAST_OBSERVE_ROOMS=0
-LABEL io.raumfeld.experimental="cast-diagnostic-only" io.raumfeld.cast-media-enabled="false"
+LABEL io.raumfeld.experimental="cast-diagnostic-only" io.raumfeld.cast-media-enabled="false" \
+      org.opencontainers.image.version="cast-diagnostic-0.1.0"
 HEALTHCHECK --interval=15s --timeout=3s CMD ["/app/qobuz/.venv/bin/python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8799/healthz',timeout=2)"]
 CMD ["/app/qobuz/.venv/bin/python", "/app/experiments/cast/service.py"]
