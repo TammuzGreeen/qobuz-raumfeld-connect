@@ -80,7 +80,7 @@ class StateStore extends EventEmitter {
     this.revision++;
     this.emit('topology');
   }
-  observe(id, state, {refresh = true} = {}) {
+  observe(id, state, {refresh = true, ...meta} = {}) {
     if (!this.host) return;
     const previous = this.renderers.get(id);
     const detected = classify(state);
@@ -100,7 +100,7 @@ class StateStore extends EventEmitter {
       this.completeReads.set(id, (this.completeReads.get(id) || 0) + 1);
     }
     this.revision++;
-    this.emit('observation', id, state, {refresh});
+    this.emit('observation', id, state, {refresh, ...meta});
   }
   observationFailed(id, error) {
     const actions = ['GetMediaInfo', 'GetTransportInfo', 'GetPositionInfo', 'QueryLastChange'];

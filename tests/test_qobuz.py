@@ -235,6 +235,7 @@ class SetupTests(unittest.IsolatedAsyncioTestCase):
             response=await self.client.post('/api/config',headers=self.headers,json={'rooms':['r'],'quality':quality})
             self.assertEqual(response.status,200)
             self.assertEqual(load_json(Path(self.tmp.name)/'config.json',{})['rooms'][0]['port'],8790)
+            self.assertEqual(load_json(Path(self.tmp.name)/'config.json',{})['rooms'][0]['name'],'Living Qobuz')
 
     async def test_oauth_callback_requires_single_use_nonce(self):
         response=await self.client.get('/oauth/callback?state=bad&code_autorisation=x')

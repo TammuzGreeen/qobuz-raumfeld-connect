@@ -8,8 +8,8 @@ import re
 EXPECTED = '5642865f95d19620227d0e5f415309c132080c63c40a44447a3e35f5760f35e4'
 
 
-def apply(source, diff):
-    if hashlib.sha256(source).hexdigest() != EXPECTED:
+def apply(source, diff, expected=EXPECTED):
+    if hashlib.sha256(source).hexdigest() != expected:
         raise ValueError('Unreviewed upstream player source; refusing backport')
     original = source.decode().splitlines(keepends=True)
     output, cursor = [], 0

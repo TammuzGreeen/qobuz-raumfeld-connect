@@ -1,0 +1,119 @@
+diff --git a/qobuz_proxy/playback/player.py b/qobuz_proxy/playback/player.py
+--- a/qobuz_proxy/playback/player.py
++++ b/qobuz_proxy/playback/player.py
+@@ -114,6 +114,8 @@
+         # while replacing a track. An omitted proto field is not a Stop request.
+         self._requested_playing_state: Optional[int] = None
+         self._pending_remote_state: Optional[dict] = None
++        # Desired paused UI position is not an applied renderer position.
++        self._pending_paused_position_ms: Optional[int] = None
+         self._playback_permission_check: Optional[Callable[[], Awaitable[bool]]] = None
+ 
+         # State reporting - supports both callback and StateReporter
+@@ -382,6 +384,16 @@
+ 
+         try:
+             # Send seek to backend
++            if (self._state == PlaybackState.PAUSED
++                    and getattr(self.backend, 'defer_paused_seek', False) is True):
++                # Seek may start this renderer. Only explicit Play consumes this.
++                generation = self._command_generation
++                await self.backend.validate_paused_seek()
++                if generation != self._command_generation or self._state != PlaybackState.PAUSED:
++                    return False
++                self._pending_paused_position_ms = clamped_position
++                await self._send_state_update()
++                return True
+             if await self.backend.seek(clamped_position) is False:
+                 # Legacy backends return None; an explicit failure must not
+                 # advance the clock or be turned into a successful position.
+@@ -432,8 +444,13 @@
+         """Revoke queued/in-flight playback intents without interrupting current audio."""
+         self._requested_playing_state = None
+         self._pending_remote_state = None
++        self._pending_paused_position_ms = None
+         self._next_generation()
+         self._clear_skip_pending()
++
++    def clear_pending_paused_seek(self) -> None:
++        """Discard desired offset when its renderer endpoint is retired."""
++        self._pending_paused_position_ms = None
+ 
+     def set_playback_permission_check(self, check: Callable[[], Awaitable[bool]]) -> None:
+         """Check renderer ownership before applying a remote session snapshot."""
+@@ -694,6 +711,7 @@
+                     # continuous (e.g. a queue reorder reassigned the id), so it
+                     # stays one listen — splitting it would double-scrobble.
+                     cur.queue_item_id = queue_item_id
++                    self._pending_paused_position_ms = None
+                     if context_uuid is not None:
+                         cur.context_uuid = context_uuid
+                     if self._state != PlaybackState.PLAYING:
+@@ -803,8 +821,13 @@
+ 
+         # Resume from pause
+         if self._state == PlaybackState.PAUSED:
+-            if position_ms > 0 and not await self.seek(position_ms):
++            deferred_seek = getattr(self.backend, 'defer_paused_seek', False) is True
++            if not deferred_seek and position_ms > 0 and not await self.seek(position_ms):
+                 return False
++            target = self._pending_paused_position_ms
++            self._pending_paused_position_ms = None
++            if deferred_seek and position_ms > 0:
++                target = position_ms
+             if not await self.backend.resume():
+                 # The renderer rejected the resume (e.g. SOAP failure) — stay
+                 # PAUSED rather than reporting PLAYING over a silent device, and
+@@ -815,6 +838,10 @@
+                 return False
+             self._state = PlaybackState.PLAYING
+             self._position_timestamp_ms = int(time.time() * 1000)
++            # Resume first; Seek-induced playback is allowed only after Play.
++            if target is not None and not await self.seek(target):
++                await self._send_state_update()
++                return False
+             await self._send_state_update()
+             # Resume continues an existing listen — pass the current position so
+             # we don't re-report a start (and re-scrobble) on every pause/resume.
+@@ -956,6 +983,7 @@
+             await self._stop_playback_locked()
+ 
+     async def _stop_playback_locked(self) -> None:
++        self._pending_paused_position_ms = None
+         self._requested_playing_state = 1
+         # Clear gapless state — explicit stop
+         self._clear_gapless_state()
+@@ -1014,6 +1042,7 @@
+         SET_STATE, leaving a manual skip on a paused track (GitHub #22).
+         """
+         logger.info(f"Loading track: track_id={track_id}, queue_item_id={queue_item_id}")
++        self._pending_paused_position_ms = None
+         self._clear_skip_pending()
+         self._clear_gapless_state()
+ 
+@@ -1450,6 +1479,8 @@
+     @property
+     def current_position_ms(self) -> int:
+         """Get current playback position."""
++        if self._state == PlaybackState.PAUSED and self._pending_paused_position_ms is not None:
++            return self._pending_paused_position_ms
+         if self._state != PlaybackState.PLAYING:
+             return self._position_value_ms
+ 
+@@ -1945,6 +1976,7 @@
+                         if self._paused_stop_polls >= _PAUSED_STOP_CONFIRMATIONS:
+                             self._paused_stop_polls = 0
+                             self._state = PlaybackState.STOPPED
++                            self._pending_paused_position_ms = None
+                             self._requested_playing_state = 1
+                             # Zero the position like _stop_playback_locked: a
+                             # stale pause-point position makes "previous" try a
+@@ -2032,7 +2064,7 @@
+             "bufferState": int(BufferStatus.OK),
+             "currentPosition": {
+                 "timestamp": self._position_timestamp_ms,
+-                "value": self._position_value_ms,
++                "value": self.current_position_ms if self._state == PlaybackState.PAUSED else self._position_value_ms,
+             },
+             "duration": self._current_duration_ms,
+             "currentQueueItemId": queue_item_id,

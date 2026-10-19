@@ -807,3 +807,373 @@ account/runtime data, real LAN/room/device identifiers, raw logs and private ima
 backups remain outside Git/GitHub. Standalone Compose was validated offline with
 synthetic placeholders and no deployment. Private rollback is preserved, not
 attached as a release asset. See `CHECKPOINT_STATUS.md` and `PREVIEW_SETUP.md`.
+
+## Seeking investigation and prepared candidate after publication
+
+The user requested seeking investigation after completing the working-preview
+publication. Unmodified pinned upstream, unchanged current upstream HEAD and
+current preview were replayed against the same deterministic 710-rejecting fake
+DLNA transport with real protobuf field absence. Upstream discarded failed Seek
+results and falsely advanced its position; combined position/PLAYING messages sent
+two Seeks. The partial-intent backport additionally duplicates position-only scrub
+while playing. Newer upstream does not resolve these defects.
+
+Candidate `d58a5cd01b2e1c5cde46c4267eccaa71ad5b096b` prepares an isolated
+acknowledgement/player backport, single-Seek intent, truthful failure/start-offset
+reporting and declared Raumfeld ABS_TIME handling. No fallback probe/retry, custom
+player/queue, proxy offset/transcoding or source-safety relaxation was introduced.
+The legacy non-DLNA path retains post-start seek reconciliation; its existing
+regressions pass. Read-only real descriptor/SCPD/action-list inspection supports
+ABS_TIME as a hypothesis, not hardware proof. See `SEEK_REVIEW.md` for the comparison,
+scope, candidate image identities, tests and required hardware plan.
+
+Built local amd64 image `raumfeld-connect:upstream-first-seek-review` passed 170
+Python tests (162 project + eight standalone upstream) and offline smoke; six
+original upstream serialization and 104 serial Node tests also passed. Exported
+archive and raw private investigation outputs remain outside Git. Candidate is
+not deployed, not registry-published and not hardware-verified. The working
+`560ee29` image and immutable `upstream-first-preview-2026-10-12` publication tag
+are unchanged. Only read-only speaker diagnostics were performed; no mutating
+speaker controls. Separate approval is required for candidate deployment/testing.
+
+## Approved seeking-candidate deployment
+
+User separately approved the controlled seeking-candidate deployment. Implementation
+`d58a5cd01b2e1c5cde46c4267eccaa71ad5b096b` is now deployed as
+`raumfeld-connect:upstream-first-seek-review`; imported ID/config digest is
+`sha256:8855faf4fd553e9ee71124f32ac47154d52d3c8a1958ec8cf5295c9cdcc4081a`.
+Private archive checksum matched and working preview `560ee29` was archived as
+rollback with complete before-state. The app update changed only image/pull policy,
+was executed once and was not retried.
+
+Verified healthy/authenticated, zero restarts, original config/credential hashes
+and optional cache state preserved, unchanged environment/mounts/host networking,
+same room identity/configuration/membership/endpoint, unrelated running containers
+preserved, diagnostics enabled, both installed backport hashes exact and upstream
+launcher present without legacy receiver/service entrypoints. Zero startup SOAP
+transmissions and zero agent speaker controls during deployment. The working
+preview prerelease/tag is unchanged. `hardwareVerified: false`; initial audible
+playback and a single Android scrub on this candidate await user observation.
+
+## First seeking-candidate playing scrub acceptance
+
+On the same deployed `d58a5cd` image, user confirmed initial audio, Android progress
+and strong connection, then reported dragging into the middle works and connection
+remains strong. Initial audible playback and this playing-track scrub are recorded
+as user-observed passed. Diagnostics captured a position-only positive update while
+playing (local event 9), one absolute-time Seek sent and acknowledged, no 710,
+seek completion true and unchanged selection/activation authority. Healthy, zero
+restarts. No agent controls were sent; raw captures stay private.
+
+This is actual hardware evidence for the declared ABS_TIME correction on the
+observed playing scrub, not merely the earlier mode hypothesis. Paused scrub/resume,
+fresh nonzero start and affected controls/progression still need acceptance on this
+candidate. Full `hardwareVerified: false`; source handoff testing follows seeking,
+scrobbling remains deferred, and the published working-preview tag is unchanged.
+
+## Paused seeking observation on current candidate
+
+User reported Pause → selecting another point immediately started audible playback
+without pressing Play; later Play did not harm audio and connection stayed steady.
+Paused-scrub silence is not accepted. Live categorical sequence: acknowledged Pause
+and player paused (event 76), position-only positive update (event 78), one
+acknowledged ABS_TIME Seek, no Play during the scrub, player still internally
+paused, then the user's later state-only PLAYING/acknowledged Play (event 80).
+Source/activation authority did not change. This points to renderer Seek-induced
+resume, rather than app PLAYING intent or a wrapper-generated Play. Exact physical
+state before the later button press was not independently read.
+
+A network-disabled replay whose renderer resumes on accepted Seek reproduced
+physical PLAYING / player PAUSED with Seek as the sole mutation for both stock
+DLNA and room backend. Existing paused-scrub tests did not model that side effect.
+No new playback implementation/deployment or agent mutating control was performed.
+The playing-scrub pass stands; full `hardwareVerified: false`, paused silence is
+failed/unresolved, and desired paused-scrub behavior needs confirmation before
+correction selection. Working-preview tag/rollback remain preserved; handoff tests
+are deferred while this seeking behavior is unresolved.
+
+## Prepared silent paused-scrub candidate — not deployed
+
+User confirmed scrubbing while paused must stay silent until explicit Play.
+Candidate `361e46eec4bc745530cc70bfc6ce215410f1bc2a` adds a third isolated,
+hash-checked upstream player patch. Room-only capability retains the desired paused
+cursor after read-only ownership validation; no transport mutation is sent. Desired
+UI position is distinct from applied renderer position. Explicit Play resumes then
+applies the latest target once, including zero. Failure does not fake position
+success; failed resume or invalidation discards the pending target. Stop, track/
+queue-occurrence changes, fresh selection, source loss, disconnect and endpoint
+retirement clear it; superseded ownership reads cannot retain old intent.
+
+Auto-resume fake-renderer coverage now tests actual silence before Play, not merely
+cached player PAUSED. Built local image
+`raumfeld-connect:upstream-first-paused-seek-review` passed 179 Python tests
+(169 project + ten standalone), six original upstream serialization tests and
+offline supervisor/UI/health/storage/shutdown smoke. Image/archive identities and
+acceptance scope are in `SEEK_REVIEW.md`; private archive/metadata stay outside Git.
+No Node implementation changed and no speaker mutation/deployment was performed.
+Running `d58a5cd` remains unchanged, including its known paused-scrub auto-resume
+failure; new candidate requires separate deployment approval and user hardware
+silence/resume-position acceptance. Working-preview tag/rollback stay unchanged.
+
+## Approved silent paused-scrub deployment
+
+User separately approved deploying `361e46eec4bc745530cc70bfc6ce215410f1bc2a`.
+Running image is now `raumfeld-connect:upstream-first-paused-seek-review`; imported
+ID/config digest is
+`sha256:ecb5bbb89c611089530386ca4159cb019ba02a2ab7355c675ace08a7c2083967`.
+Archive checksum and installed backport hashes matched; paused Seek deferral is
+enabled. Retained private fresh before-state/Compose and previous `d58a5cd` image
+archive alongside original working-preview rollback. One image/pull-policy-only
+update, no retry. Healthy/authenticated, zero restarts, config/credentials/optional
+cache state, environment/mounts/host networking, room configuration/identity/
+membership/endpoint and unrelated containers preserved. Upstream launcher present,
+legacy entrypoints absent, diagnostics enabled and zero startup SOAP transmissions.
+No agent speaker controls were sent. User hardware paused silence and explicit
+resume-position test is pending; full `hardwareVerified: false`. Published preview
+tag/rollback unchanged; source handoffs follow seeking, scrobbling remains deferred.
+
+## Silent paused scrub and explicit resume acceptance on current image
+
+User completed the requested initial playback, Pause, paused progress-bar change
+and explicit Play steps and confirmed everything works on deployed `361e46e`.
+Record initial audible playback, paused-scrub silence, audible resume from the
+chosen point and steady connection as passed for this attempt. Capture confirms
+acknowledged Pause (event 58), position-only positive delta while paused (event 60)
+without any transport transmission, then explicit PLAYING (event 62), acknowledged
+Play followed by exactly one acknowledged ABS_TIME Seek. No 710 or selection/
+activation authority change. Deferred seek true is pending-intent acceptance, not
+a physical Seek acknowledgement. Audible evidence comes from the user.
+
+Healthy, zero restarts; read-only evidence collection, no agent controls or deployment
+change. Private raw captures stay outside Git. Both source handoffs are next as
+user-driven acceptance; fresh nonzero starts and current-image control/playing-scrub
+regression remain separately outstanding. Full `hardwareVerified: false`, scrobbling
+deferred, preserved preview/tag/rollback unchanged.
+
+## Spotify → Qobuz handoff failure on current candidate — 2026-10-14
+
+User let Spotify play, explicitly selected the room in Qobuz and pressed Play;
+Qobuz produced no phone/speaker audio and lost app connection shortly afterward.
+Read-only diagnostics show different-track paused state loaded (event 1183), then
+explicit PLAYING (event 1184) failed during on-demand companion renderer creation:
+`create_for_play` received a non-200 response, raised `companion_unavailable`, and
+player entered ERROR before Qobuz URI/Play transmission. No Seek failure or stale
+command rejection in this attempt. Exact response status/body was not captured by
+the exception. Current room is unassigned with no virtual-renderer endpoint.
+
+Node's non-loopback dynamic speaker-service ECONNREFUSED occurred approximately
+33 seconds before explicit Play; possible relation, not proven causal attribution.
+Healthy/authenticated, zero restarts; Android connection loss remains user-observed,
+not contradicted by backend health. No agent transport/provisioning mutations,
+retry or deployment change. Private raw logs retained. Spotify continuation outcome
+awaits clarification; reverse handoff not tested. Current paused-seek pass remains
+recorded; Spotify → Qobuz acceptance failed, full `hardwareVerified: false`,
+scrobbling deferred, preview/tag/rollback preserved. See `SEEK_REVIEW.md`.
+
+## Renderer-request boundary trace and undeployed diagnostic correction
+
+User confirmed Spotify continued playing throughout the failed takeover, then
+requested exact renderer-error attribution, background/explicit-demand separation
+and preservation of working Qobuz playback. Recorded subscription ECONNREFUSED
+entries belong to background maintenance, not the explicit creation request. The
+old POST's exact status/body was discarded across Python/companion/SDK boundaries,
+so our check versus Raumfeld response cannot be determined retrospectively. No
+mutating request was repeated to recover missing evidence. Spotify continuation
+is non-interruption evidence, not handoff success.
+
+Candidate `29c020decab022d9526a25b699be1831bfc26807` repairs categorical error
+fidelity with bounded Python response parsing, explicit-only companion traces and
+a hash-checked pinned SDK creation-error adaptation. Local preflight/uncertainty
+block, remote HTTP status, network code, deadline and post-ack topology denial are
+distinct. No retry, source guard relaxation, regroup or player/seek modification.
+The SDK change is scoped to creation error paths; background subscriptions and
+successful-request behavior are unchanged. Installed player hash matches `361e46e`.
+
+Built local image `raumfeld-connect:upstream-first-renderer-boundary-review` passed
+182 Python tests, 14 packaged Node boundary tests and offline smoke. Full serial
+Node suite passed 110 tests and six original upstream serialization tests passed.
+Private archive retained; image identities and limitations in
+`RENDERER_BOUNDARY_REVIEW.md`. Not deployed or hardware-verified; current deployment
+unchanged. Error visibility is repaired, underlying handoff cause/fix not proven.
+Separate approval required for diagnostic deployment/new user-requested takeover.
+
+## Approved renderer-boundary diagnostic deployment
+
+User approved deploying `29c020decab022d9526a25b699be1831bfc26807` for one fresh
+explicit user takeover capture. Imported ID/config digest:
+`sha256:72a17422fa93f74943c397d6ac2138b66d3348c40415cb9995fb75a12f831625`.
+Checksum verified; fresh private before-state/Compose and `361e46e` rollback archive
+retained with original preview rollback. Image/pull-policy-only app update, once,
+no retry. Healthy/authenticated, zero restarts, unchanged credentials/config/optional
+cache state/environment/mounts/host network, same room/membership and unrelated
+containers. Player byte hash unchanged, exact SDK error adaptation verified.
+No startup transport/provisioning transmissions, no agent speaker controls.
+User instructed to perform one Spotify-playing → explicit Qobuz selection + Play.
+Outcome pending; handoff remains unaccepted, `hardwareVerified: false`, preview
+tag unchanged and scrobbling deferred.
+
+## Exact renderer-boundary defect identified on diagnostic image
+
+User reported Qobuz still failed while Spotify continued and proposed manual
+Spotify Pause before Qobuz as acceptable. Capture on `29c020d`: explicit demand
+reached library_call, failed as library_unknown; subsequent demands hit our local
+uncertainty block. Actual pinned SDK inspected offline: `kernel.getManager` is
+undefined; init exposes `kernel.managerDisposer.zoneManager.connectRoomToZone`.
+Our companion used the nonexistent getManager method and therefore failed before
+any Raumfeld creation request. Earlier mocks invented that API and missed the bug.
+This is our integration failure, not evidence that Spotify/firmware blocked it.
+Background subscription refusals remain distinct.
+
+Prepared correction uses the real manager path and validates it before setting
+mutation uncertainty; actual attempts remain single-call and uncertain failures
+remain terminal. Real pinned SDK-shape regression added, no fallback API or player/
+seek changes. Manual Spotify pause is accepted as a future test policy, not proven
+necessary. User advised not to retry the current defective/blocked deployment.
+No new deployment or agent speaker controls; separate correction approval needed.
+
+## Approved corrected-manager deployment
+
+User explicitly approved deploying `d3c3a78870bce634e9224a428b7d5e177da2a83e`.
+Imported ID/config digest:
+`sha256:d0ed8401c46e8dd7bc487a83a95ded2164428c1107015c4680d7199595126df3`.
+Private checksum matched; before-state/Compose/storage hashes and prior diagnostic
+image rollback retained with original working preview. One image/pull-policy-only
+update, no retry. Healthy/authenticated, zero restarts, configuration/credentials/
+optional cache/environment/mounts/host network, room/membership and unrelated
+containers preserved. Player unchanged; SDK error adaptation hash and corrected
+manager path verified. Actual upstream launcher, diagnostics, no legacy entrypoints,
+no startup transport/provisioning transmissions or agent speaker controls.
+Fresh user Pause Spotify → explicit Qobuz selection + Play test pending. Manual
+pause accepted policy, not a proven requirement. Full `hardwareVerified: false`,
+immutable preview untouched and scrobbling deferred.
+
+## Corrected-manager attempt — post-creation authority abort
+
+User reported Qobuz disconnects immediately and plays on the phone after the
+manual Spotify-pause handoff test. On `d3c3a78`, explicit creation now reaches
+library_call and Raumfeld acknowledgement; read-only catalog shows assigned room
+and renderer endpoint with unchanged identity/physical membership. Prior API defect
+is resolved for the observed creation, not a successful handoff.
+
+Track loaded (event 1); explicit Play entered loading (event 2). After renderer
+acknowledgement, selection/activation authority became inactive and start failed
+with stale_upstream_command before Qobuz URI/Play. Healthy, zero restarts. Spotify
+evidence counter differs from before deployment; unconditional version-change
+release is a candidate trigger, but precise increment/source freshness is not yet
+proven. Need distinguish fresh takeover from existing paused-source re-observation;
+no blanket source-guard relaxation. No agent controls/deployment change, no retry
+or drop/recreate. Phone fallback user-observed; full hardwareVerified false,
+reverse handoff untested, scrobbling deferred. See RENDERER_BOUNDARY_REVIEW.md.
+
+## All-room source-evidence correction prepared with explicit authorization
+
+User authorized implementation, all supported rooms, test deployment and GitHub
+push without main merge/tag replacement. Read-only inventory found six ungrouped
+logical rooms. Private topology/identity mapping retained, no household identifiers
+in public docs/config examples. Candidate
+`1df99d269ecd1d44e2f6759e2ae5227ad20a02a3` replaces cached-event Spotify counter
+inflation with deduplicated complete-read transitions and pre-URI fresh physical
+source confirmation. Initial paused-source/virtual projections do not release
+Qobuz; genuine fresh subsequent Spotify still cancels. Physical markers after start
+are correlated with actual virtual URI. Every release path retains source safety
+and categorical tracing through session deactivation. No player/seek patch change.
+
+Actual Node companion → upstream Speaker replay reproduces the old failure chain
+and passes corrected code plus later genuine takeover. Per-room factory/Ws binding,
+queue/session/backend identity and operation contexts isolated; port collisions
+rejected. Six-room offline smoke sends no creation/transport commands. Built image
+passed 188 Python tests, 117 serial Node, 34 packaged Node boundary tests and six
+original upstream serialization tests. See ALL_ROOMS_HANDOFF_REVIEW.md for source/
+image identity, evidence limits and pending user-operated per-room hardware plan.
+
+## Authorized all-room candidate deployment and readiness verification
+
+Deployed `1df99d269ecd1d44e2f6759e2ae5227ad20a02a3` as
+`raumfeld-connect:upstream-first-all-rooms-review`; imported ID/config digest
+`sha256:e11255790134dc6018265cb308df3e60b4dd7274a0ace193a25973bdb0efc9d9`.
+Private archive checksum matched. Fresh private before-state/Compose/full persistent
+storage backup and current `d3c3a78` rollback archive retained with original preview.
+User-authorized private config now includes all six ungrouped supported logical
+rooms, original selected-room identity/name/ports unchanged. New ports verified
+free. One image/pull-policy update, no retry; credentials/cache/env/mounts/host network,
+logical room membership and unrelated apps preserved. Player/SDK hashes verified.
+
+Healthy/authenticated, zero restarts, six speaker configs/mDNS registrations,
+all six advertisements independently observed over LAN. Each physical renderer
+discovered, discovery HTTP/audio listener available and fresh source/transport
+read successful. No grouped/offline/unsupported rooms currently present. Zero
+startup zone-creation/transport commands, unchanged assigned/unassigned topology;
+verification uses read-only source requests, no agent speaker-changing controls.
+Source/test/config-example/docs privacy-reviewed and pushed with remote verification;
+main/tag untouched. Every candidate per-room audible/control/handoff hardware check
+remains pending. See ALL_ROOMS_HANDOFF_REVIEW.md for plan and private rollback steps.
+
+## Post-beta correction candidate — not deployed
+
+After user all-room beta acceptance and immutable beta publication, user requested
+fixes for automatic nonzero start after Spotify and the original room's apparent
+release suffix. Read-only diagnostics establish PAUSED positive-position snapshot
+while STOPPED, ignored Seek, then position-less PLAYING start at zero. Actual
+pinned handler/player/DLNA replay reproduces the missing start Seek on beta code.
+Fourth hash-checked player patch retains desired stopped/load-only offsets until
+explicit Play, clearing on source/session/selection/endpoint/track/occurrence/Stop
+invalidation. Existing one acknowledged start Seek applies it once; no early
+position success, arbitrary timing, transport retry or authority bypass.
+
+Naming cause is old setup's last-six-room-ID suffix, not a release tag. Normalize
+only that exact generated suffix in runtime config; stable IDs/UUIDs/ports, custom
+names, stored config and credentials stay unchanged. Future setup omits ID suffix.
+Private household names/IDs/logs remain excluded from publication.
+
+Implementation `1917f07001545ba01bb655a496af29eafaa4f9ba`, local candidate
+`raumfeld-connect:upstream-first-beta-fixes-review`. 200 Python, 117 serial Node,
+34 packaged Node and six original upstream serialization tests plus six-room
+offline startup/label/storage smoke pass. See POST_BETA_FIX_REVIEW.md for hashes,
+evidence and candidate acceptance plan. Running beta/rollback/tag/main unchanged;
+correction deployment and audible nonzero-start acceptance await separate approval.
+
+## Approved post-beta correction deployment
+
+User approved deployment. Imported verified candidate `1917f07`, config digest
+`sha256:e998c73001369cfe57e658bf9980196b62c9b8dc4b591d8d4c88e55da29c0119`,
+as `raumfeld-connect:upstream-first-beta-fixes-review` once via app.update. New
+private pre-update Compose/config/runtime/storage backups and all-room beta image
+export retained with older rollback images. Healthy/authenticated, zero restarts;
+credential/cache/config hashes, environment/mounts/host network, room membership
+and unrelated containers preserved. Installed player and SDK hashes match candidate.
+
+Six logical rooms discovered; six LAN mDNS UUID/Name/port advertisements verified,
+discovery/audio listeners respond. Original room's legacy suffix removed; others
+unchanged. Stable device UUID is unchanged; web UI uses a name-derived slug, which
+changes on rename. Read-only verifier adjusted for this and actual TXT Name field;
+no redeployment or transport writes during verification. Startup zone creation and
+transport commands: zero. No agent speaker-changing tests. Audible nonzero starts,
+phone-visible label and candidate handoff/seek acceptance pending user-operated
+checks. Full hardwareVerified false; beta/preview tags and main unchanged.
+
+## Post-beta fixes accepted by user — 2026-10-19
+
+In response to the requested phone-visible name and post-Spotify nonzero-start
+checks without manual seeking, user confirmed checks done and everything currently
+working. Both correction checks pass on deployed `1917f07`; see
+POST_BETA_FIX_REVIEW.md for exact image identity and evidence scope. No inferred
+full per-room regression/reconnection or scrobbling acceptance, no new deployment,
+no tag/release replacement or main merge. Broader hardwareVerified remains false.
+
+## First stable release 1.0.0 — 2026-10-19
+
+User requested promotion of the accepted corrected version to the first stable
+1.0 release. Publish `v1.0.0` as stable/latest from the working branch; no main
+merge, beta/preview tag replacement, registry upload or deployment change.
+Project/lockfile/status/image version metadata updated to 1.0.0; accepted playback
+implementation remains `1917f07`. STABLE_RELEASE.md records supported independent
+ungrouped-room/CD/Android/amd64 scope, user evidence and remaining limitations.
+No full hardwareVerified/scrobbling certification is inferred from stable status.
+
+Release preparation build `61afaf4` passed frozen dependency installation, 200
+Python, 34 packaged Node tests and six-room offline startup/label/storage smoke.
+117 serial Node tests pass on rerun; initial old guarded deadline-test assertion
+variance documented without weakening test. Playback compatibility/Node modules
+and installed player match accepted deployed image (historical service status
+version is the sole Python runtime difference). Private deployment and rollback
+images unchanged; release contains public source archives only.

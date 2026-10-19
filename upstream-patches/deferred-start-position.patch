@@ -1,0 +1,86 @@
+diff --git a/qobuz_proxy/playback/player.py b/qobuz_proxy/playback/player.py
+--- a/qobuz_proxy/playback/player.py
++++ b/qobuz_proxy/playback/player.py
+@@ -116,6 +116,9 @@
+         self._pending_remote_state: Optional[dict] = None
+         # Desired paused UI position is not an applied renderer position.
+         self._pending_paused_position_ms: Optional[int] = None
++        # A stopped/load-only session snapshot may precede explicit Play.
++        # Keep its desired start offset separate from the applied clock.
++        self._pending_start_position_ms: Optional[int] = None
+         self._playback_permission_check: Optional[Callable[[], Awaitable[bool]]] = None
+ 
+         # State reporting - supports both callback and StateReporter
+@@ -445,12 +448,14 @@
+         self._requested_playing_state = None
+         self._pending_remote_state = None
+         self._pending_paused_position_ms = None
++        self._pending_start_position_ms = None
+         self._next_generation()
+         self._clear_skip_pending()
+ 
+     def clear_pending_paused_seek(self) -> None:
+-        """Discard desired offset when its renderer endpoint is retired."""
++        """Discard desired offsets when their renderer endpoint is retired."""
+         self._pending_paused_position_ms = None
++        self._pending_start_position_ms = None
+ 
+     def set_playback_permission_check(self, check: Callable[[], Awaitable[bool]]) -> None:
+         """Check renderer ownership before applying a remote session snapshot."""
+@@ -712,6 +717,7 @@
+                     # stays one listen — splitting it would double-scrobble.
+                     cur.queue_item_id = queue_item_id
+                     self._pending_paused_position_ms = None
++                    self._pending_start_position_ms = None
+                     if context_uuid is not None:
+                         cur.context_uuid = context_uuid
+                     if self._state != PlaybackState.PLAYING:
+@@ -737,7 +743,11 @@
+ 
+             # Position, then play/pause/stop — same order as the app expects.
+             if position_ms is not None and not stale:
+-                await self.seek(position_ms)
++                if self._state in (PlaybackState.STOPPED, PlaybackState.LOADING):
++                    # No transport is ours yet. Do not Seek or publish success.
++                    self._pending_start_position_ms = max(0, position_ms)
++                else:
++                    await self.seek(position_ms)
+ 
+             if playing_state is not None and not stale:
+                 if gen != self._command_generation:
+@@ -747,7 +757,7 @@
+                 if playing_state == 2:
+                     # Position was applied above for an active transport. Only
+                     # a newly started transport needs a post-load start Seek.
+-                    start_position = (position_ms or 0) if self._state not in (
++                    start_position = (self._pending_start_position_ms or 0) if self._state not in (
+                         PlaybackState.PLAYING, PlaybackState.PAUSED) else 0
+                     await self._play_locked(start_position)
+                 elif playing_state == 3:
+@@ -867,6 +877,10 @@
+             self._current_track = track
+ 
+         # Start playback
++        if position_ms == 0 and self._pending_start_position_ms is not None:
++            position_ms = self._pending_start_position_ms
++        # Consume once. Failure/rejection must not retry a previous intent.
++        self._pending_start_position_ms = None
+         acknowledged_seek = getattr(self.backend, 'seek_before_report', False) is True
+         if not acknowledged_seek and position_ms > 0:
+             self._position_value_ms = position_ms
+@@ -984,6 +998,7 @@
+ 
+     async def _stop_playback_locked(self) -> None:
+         self._pending_paused_position_ms = None
++        self._pending_start_position_ms = None
+         self._requested_playing_state = 1
+         # Clear gapless state — explicit stop
+         self._clear_gapless_state()
+@@ -1043,6 +1058,7 @@
+         """
+         logger.info(f"Loading track: track_id={track_id}, queue_item_id={queue_item_id}")
+         self._pending_paused_position_ms = None
++        self._pending_start_position_ms = None
+         self._clear_skip_pending()
+         self._clear_gapless_state()
+ 

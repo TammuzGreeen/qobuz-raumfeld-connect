@@ -91,12 +91,14 @@ class Replay:
         self.row = {'roomId': 'synthetic-room', 'assigned': True, 'endpoint': endpoint_row,
                     'rendererIds': ['synthetic-physical'], 'spotifyVersion': 0}
         if room:
-            companion = SimpleNamespace(lookup=AsyncMock(side_effect=lambda _: dict(self.row)))
+            companion = SimpleNamespace(lookup=AsyncMock(side_effect=lambda _: dict(self.row)), close=AsyncMock(),
+                                        confirm_sources=AsyncMock())
             self.backend = DeferredRoomBackend(companion, 'synthetic-room', 'Synthetic')
             self.backend.endpoint = Endpoint.parse('synthetic-room', endpoint_row)
             self.backend.epoch = 1
             self.backend.spotify_version = 0
             self.client = RoomDLNAClient(self.backend, self.backend.endpoint, 1)
+            self.client.seek_declared = True  # Synthetic validated SCPD; no network.
         else:
             self.backend = DLNABackend('renderer.example.test', name='Synthetic')
             self.client = DLNAClient('renderer.example.test')
@@ -130,6 +132,7 @@ class Replay:
                 marker.set()
             return await original_apply(**kwargs)
         self.player.apply_remote_state = observe_entry
+        operation.set(None)  # Driver is not an old handler/invalidation callback.
 
     @staticmethod
     def url(track):

@@ -1,0 +1,199 @@
+# All-room upstream-first handoff test
+
+## Later user acceptance and beta publication
+
+User confirmed original-room paused/active Spotify → Qobuz and Qobuz → Spotify
+handoffs, audible playback and steady connection, Next, pause/resume, playing and
+paused seek, app/speaker volume, and playback in different rooms. User then reported
+all rooms work for now and authorized beta release. This supersedes the pending
+user observations below, without inventing detailed per-room test matrices.
+Known remaining bug: automatic nonzero track start after Spotify handoff starts at
+zero; manual seeking works. See BETA_RELEASE.md. Overall full hardware acceptance
+and scrobbling remain deferred; no playback implementation/deployment changed for
+publication.
+
+This is later experimental work, not replacement of the preserved preview tag.
+No account scrobbling acceptance is implied; overall `hardwareVerified: false`.
+Household IDs/names, topology/source snapshots, credentials and deployment config
+remain private. Public room aliases below are config-order correlation only.
+
+## Root cause: evidence and limits
+
+Confirmed on hardware: fixed manager API creates the renderer; afterward authority
+was revoked before Qobuz URI/Play. Spotify was paused throughout. Earlier SDK
+subscription refusals were background maintenance, not the explicit request.
+
+Confirmed by identical synthetic replay with real Node companion, upstream Speaker,
+player/handler and fake SOAP boundary: reviewed old companion increments its Spotify
+counter for cached nativeSpotify notifications and a newly discovered virtual
+renderer's projection of the same paused Spotify source. Refresh interprets that
+as takeover, calls release_source, invalidates player work and leaves the cloud
+session. Start then fails stale_upstream_command before URI. Corrected replay
+completes URI/Play/audio-proxy delivery and still releases on a later genuine
+Spotify transition. Both physical/virtual notification orders and duplicate
+notifications are covered. This proves the defect and matches the hardware failure;
+the exact historical live increment was not recorded, so that last attribution
+remains inference until new categorical hardware diagnostics confirm it.
+
+Other revocation paths audited and retained: membership change, renderer identity
+replacement, mismatching virtual URI (including post-URI loading), failed/uncertain
+SOAP mutation, mismatching volume readback, upstream activation/deactivation,
+disconnect and stale room/selection/endpoint callbacks. Diagnostics now correlate
+room, release reason, observation origin/read type, cached/fresh status, source/
+transport category, current selection pending and explicit creation outstanding,
+through intent invalidation, activation changes and cloud-session release.
+
+## Correction and source safety
+
+Cached state/URI notifications are hints only, never fresh takeover proof. Complete
+reads establish a per-device baseline; equivalent source/transport observations and
+initial virtual projection do not increment. Fresh Spotify source replacement or
+resume transitions increment room-local evidence; equivalent transitions deduplicate.
+No timestamp pairing window, periodic counter reset or blanket Spotify disable.
+
+Immediately before URI replacement, explicit demand obtains current physical
+source/transport reads, rejects superseded or unavailable results, refreshes room
+evidence and checks captured authority. This read-only source-snapshot endpoint
+never creates zones or sends playback commands. QueryLastChange reads are labeled
+separately from GetMediaInfo; event receipt never counts as a complete read. After
+Qobuz starts, physical Spotify-marker evidence is corroborated against a fresh
+virtual URI before classifying it as takeover. Changed virtual URI still releases.
+New genuine Spotify during loading cancels pending work; no automatic reclamation.
+
+The existing three player/seek patches are unchanged. Stock upstream still owns
+sessions, per-speaker queues/players/reporting and audio proxy delivery. Node only
+observes source/discovery evidence and creates a renderer on explicit demand.
+Mutation failures remain terminal; no retries, regroup, drop/recreate, fallback
+setter, leases or replay registry. Missing/uncertain fresh evidence fails closed.
+
+## Room isolation and inventory
+
+The previous single captured room/shared active backend is replaced with an exact
+configuration-keyed registry. Each WsManager captures its own backend permanently;
+each upstream Speaker owns its queue/player, session, diagnostics, endpoint and
+source state. Operation capture includes backend-instance identity, so equal
+numeric generations in different rooms cannot confer authority. Old managers
+cannot inherit a replacement backend. Stable UUIDs remain derived from logical
+room IDs. All discovery/audio ports are checked for collisions including local UI/
+companion ports. Existing room 01 identity/name/ports are retained.
+
+Read-only topology inventory found six ungrouped logical rooms, each with one
+physical-renderer identity. Logical stereo pairs, if represented by that identity,
+are not split. No grouped or empty rooms were present. Physical online/discovery
+status is independently reported by the new read-only inventory endpoint rather
+than inferred from topology alone. Offline supported rooms remain configured but
+are labeled unavailable; grouped/missing-renderer rooms would be listed with their
+exact limitation and not silently split or regrouped.
+
+| Alias | Previously selected | Discovery port | Audio port | Hardware on candidate |
+| --- | --- | --- | --- | --- |
+| room_01 | Yes | 8790 | 8890 | Pending |
+| room_02 | No | 8791 | 8891 | Pending |
+| room_03 | No | 8792 | 8892 | Pending |
+| room_04 | No | 8793 | 8893 | Pending |
+| room_05 | No | 8794 | 8894 | Pending |
+| room_06 | No | 8795 | 8895 | Pending |
+
+On the deployed candidate, **all six** have physical discovery, successful fresh
+source/transport reads, working discovery HTTP/audio listeners and observed mDNS
+advertisements. No grouped, offline or unsupported rooms are currently present.
+These are readiness checks only; every row's audible/control/handoff result remains
+pending on this exact image.
+
+Real configuration and alias mapping are private. `examples/all-rooms-test.json`
+contains placeholders only. All-room availability does not authorize simultaneous
+household playback. Startup/poll/reconnect cannot create every zone; zones are
+activated only on explicit Play. Unsupported grouped topology remains immutable.
+
+## Validation and hardware plan
+
+Regressions exercise actual pinned SDK interfaces, paused Spotify projection,
+duplicate/both observation orders, fresh subsequent Spotify in loading and after
+start, virtual-URI corroboration, stale callbacks/reselection, room A evidence
+while room B remains active, concurrent upstream Speaker discovery, per-room
+sessions/queues/managers, endpoint rebinding and port collision refusal. Existing
+Next, seek, pause/resume, volume and guarded-path suites remain required. Six-room
+offline supervisor smoke verifies unchanged storage and no startup transport/
+creation commands. Synthetic audio bytes are not proof of real audible playback.
+
+After authorized deployment, user-operated tests start with room_01, one room at a
+time: paused Spotify → fresh explicit Qobuz selection + Play; active Spotify case
+separately; Qobuz → Spotify with no reclamation; Spotify continuing in another
+room while this room starts Qobuz. Then audible playback, Next/natural progression,
+pause/resume, playing/paused seek, app volume/physical-knob feedback, reconnection
+and practical endpoint rebinding. Repeat applicable cases on remaining supported
+rooms. Label every unfinished observation pending, not inferred from SOAP/PLAYING.
+
+## Rollback
+
+Before deployment retain private effective Compose, complete persistent-volume
+backup and both current/working-preview image archives. Stop the test app before
+restoring its saved config.json (only room selection changes); preserve credentials
+and other persistent state. Restore saved Compose with the matching saved image
+using the supported app.update dictionary operation once; do not force-pull or
+blindly retry uncertain transport/provisioning requests. Verify auth, original room
+identity, networking and unrelated apps. The image's pinned player hashes distinguish
+the current seeking-capable rollback from the older published preview. No merge to
+main or existing release-tag replacement is part of this test.
+
+## Prepared candidate identities and checks
+
+- Playback source revision: `1df99d269ecd1d44e2f6759e2ae5227ad20a02a3`.
+- Local amd64 tag: `raumfeld-connect:upstream-first-all-rooms-review`.
+- Local OCI index:
+  `sha256:ab7e774653019d63aa5f372b4e78a0e6d45e4fd8b6e33aa434ac8eed6a0fbbcf`.
+- Private export SHA-256:
+  `a12338f4aa233f946c12c373d7cd23721b860422257147bdb04e9adc2fe6bf49`.
+- 188 Python tests (178 project + ten standalone), 117 serial Node tests,
+  34 packaged Node boundary/observation tests, six original upstream serialization
+  tests and six-room offline supervisor/UI/health/storage/shutdown smoke passed.
+- Installed player SHA-256 equals current seeking-capable deployment, unchanged:
+  `7bc008e7b3251456c4c55fb2f8bd7ab45a0b5b44fce243f64e05b4b0ee598b91`.
+
+One exploratory run encountered an existing guarded short-deadline assertion
+variance (`ownership_lost` instead of `source_not_confirmed`); the complete final
+serial suite passed without weakening that test. No candidate hardware/control
+pass is inferred from these offline results. Deployment outcome is recorded below.
+
+## Authorized all-room deployment — hardware acceptance pending
+
+`1df99d269ecd1d44e2f6759e2ae5227ad20a02a3` is deployed as
+`raumfeld-connect:upstream-first-all-rooms-review`. Imported Docker image ID/config
+digest is `sha256:e11255790134dc6018265cb308df3e60b4dd7274a0ace193a25973bdb0efc9d9`,
+distinct from the local OCI index above. Archive checksum matched. Source/tests/
+synthetic examples/docs were privacy-reviewed and pushed normally to
+`experiment/upstream-first-one-room`, with remote SHA verification. Main and the
+existing preview tag were not changed; no registry image/release replacement.
+
+Retained private effective Compose/runtime/config before-state, a complete `/data`
+archive and current `d3c3a78` image archive; original working `560ee29` preview
+rollback remains available. Added all six supported logical rooms to private
+config.json, preserving original room identity/name/ports and every other setting.
+New ports were checked against live listeners before update. Performed one app
+image/pull-policy update without retry, preserving environment, mounts, host
+networking, credentials/optional token cache and unrelated running containers.
+All logical room membership is unchanged; no grouped room or stereo pair was split.
+
+Verified healthy/authenticated, zero restarts, six configured speakers, six mDNS
+registrations and independent LAN browse observation of all six stable UUID/port
+advertisements. Discovery HTTP and audio listeners respond for each room; each
+physical renderer is discovered and each room's fresh read-only source confirmation
+succeeds. Startup sent **zero zone-creation or transport commands**; assigned/
+unassigned topology stayed unchanged. Diagnostic verification subsequently issued
+only source/transport reads, not agent speaker-changing controls. Installed player
+and pinned SDK adaptation hashes matched expected values.
+
+Per-room handoff/audibility/controls remain pending. Existing hardware passes belong
+to earlier exact images and are not copied onto this candidate. Start with room_01
+(the original failing room), then remaining rooms one at a time. Full
+`hardwareVerified: false`; source-release diagnostics will distinguish the next
+observed trigger rather than retroactively asserting an uncaptured live event.
+
+For rollback to current seeking-capable `d3c3a78`, stop the test app, restore only
+saved private config.json to its original one-room selection, then restore saved
+Compose referencing `raumfeld-connect:upstream-first-renderer-manager-review` with
+`pull_policy: never` via app.update. Retain credentials/newer token cache; do not
+blindly overwrite the whole volume. The complete backup is disaster recovery, not
+an automatic rollback restore. For the original preview use its separately saved
+Compose and `raumfeld-connect:upstream-first-partial-state-review`. No transport
+retries, force pushes or tag changes are involved.

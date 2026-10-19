@@ -25,7 +25,12 @@ const allowedRooms = () => {
     return Array.isArray(settings.rooms) ? settings.rooms.map(r => r.id) : [];
   } catch { return []; }
 };
-const companion = new Companion(store, observer, {allowedRooms});
+const diagnostic = fields => {
+  if (fs.existsSync('/app/.upstream-state-diagnostics')) {
+    console.info('Renderer demand diagnostic ' + Object.entries(fields).map(([k, v]) => `${k}=${v}`).join(' '));
+  }
+};
+const companion = new Companion(store, observer, {allowedRooms, diagnostic});
 const server = createCompanionApi(companion, process.env.API_TOKEN);
 // Companion mutation API is local-only, independent of speaker-facing discovery.
 server.listen(Number(process.env.API_PORT || 8787), '127.0.0.1');

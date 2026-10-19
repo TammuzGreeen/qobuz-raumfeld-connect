@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.0.0 — 2026-10-19 — first stable upstream-first release
+
+- Promote the user-accepted `1917f07` implementation; release changes are version
+  metadata and documentation, not a new playback algorithm or hardware deployment.
+- Independent state/session/queue/endpoint/authority for all six supported logical
+  rooms; stable discovery UUIDs, no background zone creation or grouping changes.
+- Spotify → Qobuz with Spotify paused or active, Qobuz → Spotify, steady audible
+  playback, Next, pause/resume, paused/playing seek and app/speaker volume accepted
+  in the recorded user tests; cross-room playback and all-room operation confirmed.
+- Deduplicate cached Spotify evidence while preserving genuine takeover revocation.
+- Retain split handoff start positions until explicit Play and apply one acknowledged
+  start Seek; user confirmed automatic nonzero starts without manual seeking.
+- Normalize legacy generated room-name ID suffix without changing stable identity.
+- Scope: upstream-first, CD-quality configuration, independent ungrouped rooms,
+  Android client and amd64 deployment. Not universal hardware/firmware certification.
+- Deferred: account history/Last.fm scrobbling, broader reconnection/endpoint
+  rebinding and full detailed per-room regression matrices. Grouped/gapless playback,
+  automatic reclamation and uncertain transport retries remain unsupported.
+- Source-only stable GitHub release; no registry image, main merge, deployment
+  replacement or previous tag changes. See STABLE_RELEASE.md.
+
 ## upstream-first-preview-2026-10-12 — working preview, seeking outstanding
 
 - Preserve the tested playback source `560ee29` and current private rollback image;

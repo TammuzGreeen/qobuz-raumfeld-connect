@@ -32,7 +32,9 @@ class StateDiagnostics:
             stage = state.name.lower() if isinstance(state, PlaybackState) else 'unavailable'
             authority = self.backend.capture_operation()[2]
             source_active = authority[1] if authority is not None else 'unavailable'
-            values = dict(event=event.get(), phase=phase, stage=stage, sourceActive=source_active, **fields)
+            values = dict(room=self.backend.diagnostic_alias, event=event.get(), phase=phase,
+                          stage=stage, sourceActive=source_active, **fields,
+                          pendingStart=position(getattr(player, '_pending_start_position_ms', None)))
             logger.info('Upstream state diagnostic %s', ' '.join(f'{k}={v}' for k, v in values.items()))
         except Exception:
             pass  # Diagnostics must never change command success or safety.
@@ -79,6 +81,13 @@ class StateDiagnostics:
             event.reset(token)
 
     def bind_player(self, player):
+        invalidate = player.invalidate_pending_commands
+        @wraps(invalidate)
+        def invalidated():
+            self.emit('intent_invalidation', selectionPending=self.backend.selection_pending,
+                      creationOutstanding=self.backend.creation_outstanding)
+            return invalidate()
+        player.invalidate_pending_commands = invalidated
         for name in ('apply_remote_state', '_load_track_locked', '_play_locked', '_start_playback',
                      '_pause_locked', '_stop_playback_locked', '_handle_track_ended', 'seek', '_send_state_update'):
             original = getattr(player, name)
@@ -90,7 +99,10 @@ class StateDiagnostics:
                     if name == 'apply_remote_state':
                         fields = dict(playing=playing(kwargs.get('playing_state')),
                                       position=position(kwargs.get('position_ms')),
-                                      **self.target(kwargs.get('track_id'), kwargs.get('queue_item_id')))
+                                       **self.target(kwargs.get('track_id'), kwargs.get('queue_item_id')))
+                    elif name in ('_play_locked', '_start_playback'):
+                        key = 'start_position_ms' if name == '_start_playback' else 'position_ms'
+                        fields = dict(requestedStart=position(args[0] if args else kwargs.get(key, 0)))
                     self.emit(name + '_entered', **fields)
                     outcome = 'error'
                     try:
@@ -106,6 +118,14 @@ class StateDiagnostics:
             setattr(player, name, wrap(original, name))
 
     def bind_ws(self, manager):
+        release = manager.release_external_playback
+        @wraps(release)
+        def released():
+            result = release()
+            self.emit('cloud_session_released', selectionPending=self.backend.selection_pending,
+                      creationOutstanding=self.backend.creation_outstanding)
+            return result
+        manager.release_external_playback = released
         original = manager.send_state_update
         @wraps(original)
         async def send_state_update(*args, **kwargs):

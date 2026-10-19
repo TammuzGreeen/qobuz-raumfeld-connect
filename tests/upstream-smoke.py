@@ -16,7 +16,10 @@ assert not legacy.intersection(sys.modules), 'Legacy receiver imported by upstre
 
 with tempfile.TemporaryDirectory() as directory:
     root = Path(directory)
-    config = {'rooms': [{'id': 'synthetic-room', 'name': 'Example Qobuz', 'port': 8790}], 'quality': 6}
+    config = {'rooms': [{'id': 'synthetic-room-'+str(i), 'name': 'Example Qobuz '+str(i), 'port': 8790+i}
+                        for i in range(6)], 'quality': 6}
+    config['rooms'][0]['name'] = 'Example Qobuz ' + config['rooms'][0]['id'][-6:]
+    expected_names = ['Example Qobuz'] + [room['name'] for room in config['rooms'][1:]]
     path = root / 'config.json'
     path.write_text(json.dumps(config))
     before = path.read_bytes()
@@ -30,6 +33,9 @@ with tempfile.TemporaryDirectory() as directory:
             try:
                 with urllib.request.urlopen('http://127.0.0.1:8788/api/status', timeout=1) as response:
                     assert response.status == 200
+                    speakers = json.load(response)['speakers']
+                    assert len(speakers) == 6
+                    assert [speaker['name'] for speaker in speakers] == expected_names
                 result = subprocess.run([sys.executable, 'docker/healthcheck.py'], env=env,
                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 if result.returncode == 0:
@@ -44,6 +50,8 @@ with tempfile.TemporaryDirectory() as directory:
         stdout, stderr = process.communicate(timeout=10)
         assert process.returncode == 0, 'Supervisor did not exit cleanly'
         assert b'Waiting for Qobuz' not in stderr  # No legacy setup/receiver startup.
+        assert b'phase=soap_sending' not in stderr
+        assert b'phase=library_call' not in stdout
         print('Upstream-first supervisor, stock application UI, health, storage preservation and clean shutdown passed offline.')
     finally:
         if process.poll() is None:

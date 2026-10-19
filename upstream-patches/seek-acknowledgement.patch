@@ -1,0 +1,181 @@
+diff --git a/qobuz_proxy/backends/dlna/backend.py b/qobuz_proxy/backends/dlna/backend.py
+index 5146dda..ee80577 100644
+--- a/qobuz_proxy/backends/dlna/backend.py
++++ b/qobuz_proxy/backends/dlna/backend.py
+@@ -52,6 +52,10 @@ class DLNABackend(AudioBackend):
+     It does not handle URL proxying itself.
+     """
+ 
++    # This backend explicitly acknowledges positional application; unlike
++    # legacy backends, a start offset can be verified before player reporting.
++    seek_before_report = True
++
+     def __init__(
+         self,
+         ip: str,
+@@ -422,13 +426,15 @@ class DLNABackend(AudioBackend):
+     # Position Control
+     # =========================================================================
+ 
+-    async def seek(self, position_ms: int) -> None:
++    async def seek(self, position_ms: int) -> bool:
+         """Seek to position."""
+         if not await self._owns_transport():
+             raise RuntimeError("Cannot seek: renderer is not playing the Qobuz track")
+         if self._client and await self._client.seek(position_ms):
+             self._position_ms = position_ms
+             self._notify_position_update(position_ms)
++            return True
++        return False
+ 
+     async def get_position(self) -> int:
+         """Get current position."""
+diff --git a/qobuz_proxy/playback/player.py b/qobuz_proxy/playback/player.py
+index fdc347c..a6e3286 100644
+--- a/qobuz_proxy/playback/player.py
++++ b/qobuz_proxy/playback/player.py
+@@ -382,7 +382,10 @@ class QobuzPlayer:
+ 
+         try:
+             # Send seek to backend
+-            await self.backend.seek(clamped_position)
++            if await self.backend.seek(clamped_position) is False:
++                # Legacy backends return None; an explicit failure must not
++                # advance the clock or be turned into a successful position.
++                return False
+ 
+             # Update position tracking
+             self._set_position(clamped_position)
+@@ -724,7 +727,11 @@ class QobuzPlayer:
+                     return
+                 # Proto: 1=STOPPED, 2=PLAYING, 3=PAUSED
+                 if playing_state == 2:
+-                    await self._play_locked(position_ms or 0)
++                    # Position was applied above for an active transport. Only
++                    # a newly started transport needs a post-load start Seek.
++                    start_position = (position_ms or 0) if self._state not in (
++                        PlaybackState.PLAYING, PlaybackState.PAUSED) else 0
++                    await self._play_locked(start_position)
+                 elif playing_state == 3:
+                     await self._pause_locked()
+                 elif playing_state == 1:
+@@ -796,6 +803,8 @@ class QobuzPlayer:
+ 
+         # Resume from pause
+         if self._state == PlaybackState.PAUSED:
++            if position_ms > 0 and not await self.seek(position_ms):
++                return False
+             if not await self.backend.resume():
+                 # The renderer rejected the resume (e.g. SOAP failure) — stay
+                 # PAUSED rather than reporting PLAYING over a silent device, and
+@@ -817,7 +826,7 @@ class QobuzPlayer:
+         if self._state == PlaybackState.PLAYING:
+             if position_ms > 0:
+                 logger.info(f"Scrubbing to {position_ms}ms while playing")
+-                await self.seek(position_ms)
++                return await self.seek(position_ms)
+             return True
+ 
+         # Get track to play (if not already loaded)
+@@ -830,18 +839,14 @@ class QobuzPlayer:
+                 return False
+             self._current_track = track
+ 
+-        # Set starting position
+-        if position_ms > 0:
++        # Start playback
++        acknowledged_seek = getattr(self.backend, 'seek_before_report', False) is True
++        if not acknowledged_seek and position_ms > 0:
+             self._position_value_ms = position_ms
+             self._position_timestamp_ms = int(time.time() * 1000)
+-
+-        # Start playback
+         success = await self._start_playback(position_ms)
+-
+-        # Seek if position > 0 and playback started
+-        if success and position_ms > 0:
++        if success and position_ms > 0 and not acknowledged_seek:
+             await self.backend.seek(position_ms)
+-
+         return success
+ 
+     async def reload_current_track(self) -> bool:
+@@ -886,7 +891,7 @@ class QobuzPlayer:
+         if was_playing:
+             # Restart playback from saved position
+             success = await self._start_playback(saved_position)
+-            if success and saved_position > 0:
++            if success and saved_position > 0 and getattr(self.backend, 'seek_before_report', False) is not True:
+                 await self.backend.seek(saved_position)
+             return success
+         else:
+@@ -1110,17 +1115,14 @@ class QobuzPlayer:
+         if generation != self._command_generation:
+             return False
+ 
+-        # Set starting position
+-        self._position_value_ms = position_ms
+-        self._position_timestamp_ms = int(time.time() * 1000)
+-
+         # Start playback
++        acknowledged_seek = getattr(self.backend, 'seek_before_report', False) is True
++        if not acknowledged_seek:
++            self._position_value_ms = position_ms
++            self._position_timestamp_ms = int(time.time() * 1000)
+         success = await self._start_playback(position_ms)
+-
+-        # Seek if position > 0 and playback started
+-        if success and position_ms > 0:
++        if success and position_ms > 0 and not acknowledged_seek:
+             await self.backend.seek(position_ms)
+-
+         return success
+ 
+     async def set_loop_mode(self, mode: int) -> None:
+@@ -1296,6 +1298,9 @@ class QobuzPlayer:
+ 
+         # Set loading state
+         self._state = PlaybackState.LOADING
++        acknowledged_seek = getattr(self.backend, 'seek_before_report', False) is True
++        if acknowledged_seek:
++            self._set_position(0)
+         await self._send_state_update()
+ 
+         try:
+@@ -1359,18 +1364,30 @@ class QobuzPlayer:
+                 return False
+             await self.backend.play(url, backend_meta)
+ 
+-            # Update state. Report the start position, not 0 — the caller
+-            # seeks the backend right after, and reporting 0 first makes the
+-            # app's progress bar snap to 0:00 until the next heartbeat.
++            # One intentional post-start Seek, before publishing the requested
++            # position. A definite rejection leaves the real playback running
++            # without retry or a recovery Stop, but is not position success.
++            applied = True
++            actual_position = 0 if acknowledged_seek else start_position_ms
++            if start_position_ms > 0 and acknowledged_seek:
++                target = max(0, min(start_position_ms, max(0, track.duration_ms - 1000))) \
++                    if track.duration_ms > 0 else start_position_ms
++                if generation != self._command_generation:
++                    applied = False
++                else:
++                    applied = await self.backend.seek(target) is not False
++                actual_position = target if applied else await self.backend.get_position()
++
++            # Preserve the observed playback mode independently of seek success.
+             self._state = PlaybackState.PLAYING
+             self._current_duration_ms = track.duration_ms
+             self._unavailable_skip_count = 0
+-            self._position_value_ms = start_position_ms
++            self._position_value_ms = actual_position
+             self._position_timestamp_ms = int(time.time() * 1000)
+ 
+             await self._send_state_update()
+-            await self._report_playing(start_position_ms)
+-            return True
++            await self._report_playing(actual_position)
++            return applied
+ 
+         except Exception as e:
+             logger.error(f"Failed to start playback: {e}", exc_info=True)

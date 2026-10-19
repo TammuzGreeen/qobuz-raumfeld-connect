@@ -17,9 +17,14 @@ COPY raumkernel ./raumkernel
 COPY qobuz/*.py qobuz/*.html ./qobuz/
 COPY shared ./shared
 COPY docker ./docker
+RUN /app/qobuz/.venv/bin/python docker/apply-raumkernel-creation-errors.py \
+    && node --check /app/node_modules/node-raumkernel/lib/lib.manager.zoneManager.js
 COPY upstream-patches ./upstream-patches
 RUN /app/qobuz/.venv/bin/python docker/apply-upstream-player-patch.py
-COPY LICENSE ARCHITECTURE.md README.md SPEAKER_AVAILABILITY.md VOLUME_REVIEW.md HANDOFF_REVIEW.md CHECKPOINT_STATUS.md DIRECT_DLNA_EXPERIMENT.md UPSTREAM_FIRST_EXPERIMENT.md ./
+RUN /app/qobuz/.venv/bin/python docker/apply-upstream-seek-patch.py
+RUN /app/qobuz/.venv/bin/python docker/apply-upstream-paused-seek-patch.py
+RUN /app/qobuz/.venv/bin/python docker/apply-upstream-start-position-patch.py
+COPY LICENSE ARCHITECTURE.md README.md SPEAKER_AVAILABILITY.md VOLUME_REVIEW.md HANDOFF_REVIEW.md CHECKPOINT_STATUS.md DIRECT_DLNA_EXPERIMENT.md UPSTREAM_FIRST_EXPERIMENT.md SEEK_REVIEW.md RENDERER_BOUNDARY_REVIEW.md ALL_ROOMS_HANDOFF_REVIEW.md BETA_RELEASE.md POST_BETA_FIX_REVIEW.md STABLE_RELEASE.md ./
 ARG UPSTREAM_STATE_DIAGNOSTICS=0
 RUN test "$UPSTREAM_STATE_DIAGNOSTICS" = 0 || { test "$UPSTREAM_STATE_DIAGNOSTICS" = 1 && touch /app/.upstream-state-diagnostics; }
 RUN /app/qobuz/.venv/bin/python -c "from qobuz.receiver import Receiver; from qobuz.service import Service" \
@@ -32,7 +37,7 @@ ENV PYTHONUNBUFFERED=1 API_BIND=127.0.0.1 API_PORT=8787
 ARG PLAYBACK_PATH=guarded
 ENV PLAYBACK_PATH=${PLAYBACK_PATH}
 LABEL org.opencontainers.image.source="https://github.com/TammuzGreeen/qobuz-raumfeld-connect" \
-      org.opencontainers.image.version="0.2.0" \
+      org.opencontainers.image.version="1.0.0" \
       org.opencontainers.image.licenses="MIT"
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
   CMD ["/app/qobuz/.venv/bin/python", "docker/healthcheck.py"]

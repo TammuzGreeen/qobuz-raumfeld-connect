@@ -1,8 +1,41 @@
-# Raumfeld Connect — upstream-first working preview
+# Raumfeld Connect 1.0
 
-Qobuz Connect for one ungrouped Raumfeld room, with native Spotify source protection.
+**First stable release: [v1.0.0](https://github.com/TammuzGreeen/qobuz-raumfeld-connect/releases/tag/v1.0.0).**
+Qobuz Connect for independent ungrouped Raumfeld rooms, with native Spotify source
+protection. User reports all six rooms working, with source handoffs, playback
+controls, seeking and volume tested. Post-Spotify mid-track starts and the original
+room's logical name are now user-confirmed working on deployed `1917f07`.
+
+See [1.0 release scope, setup and limitations](STABLE_RELEASE.md). This is a
+source-only release of the accepted upstream-first implementation plus version/
+documentation updates; it does not replace the running image or publish a registry
+image. Build with `PLAYBACK_PATH=upstream_first` explicitly. Beta/preview tags and
+private rollback images remain unchanged. Grouped playback and scrobbling acceptance
+are not claimed; broader reconnection/rebinding and detailed per-room regression
+coverage remain outstanding.
+
+## Historical preview (not current beta status)
+
 This branch contains a **working hardware-tested preview with seeking outstanding**,
 not a fully accepted release. The running deployment is unchanged by publication.
+
+**Later development:** [seeking investigation/candidate](SEEK_REVIEW.md) is separate
+from the published preview. Candidate `361e46e` is now separately approved/deployed;
+paused-scrub silence and explicit resume from the selected point now pass the user
+hardware test, with steady connection. Previous
+`d58a5cd` passed playing scrubbing but auto-resumed during paused scrubbing.
+Spotify → Qobuz handoff failed before renderer/audio start; Spotify kept playing.
+[Boundary trace and approved diagnostic deployment](RENDERER_BOUNDARY_REVIEW.md)
+distinguish background maintenance from explicit takeover without claiming its
+discarded response is recoverable.
+The call-boundary defect is now identified: our companion used the nonexistent
+`kernel.getManager()` API. Corrected `d3c3a78` is now approved/deployed, awaiting
+user hardware handoff acceptance. Renderer creation now succeeds, but authority
+is revoked before Qobuz transport start and handoff still fails. Manual Spotify
+pause is an acceptable test policy, not a proven requirement or successful handoff.
+Broader acceptance remains incomplete. Image/acceptance details
+below identify the preserved working preview, not this newer experimental deployment.
+Build the tagged/pinned sources below to preserve the tested preview.
 
 ## Tested checkpoint
 
