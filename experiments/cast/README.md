@@ -248,6 +248,32 @@ without restarting stable playback or sending any speaker command. Because this
 install is middleware-managed, use its app controls rather than the generic
 standalone Compose recipe below. No room/topology restore is needed.
 
+### First user discovery report
+
+The user reports no visible target in Android or Chromium. Sender versions and
+sender-side diagnostic errors have not been captured, so Android and Chromium
+cannot be individually attributed from aggregate counters.
+
+Read-only inspection after that report found the diagnostic still healthy with
+zero restarts and its listener bound to the configured LAN bridge (up/multicast
+enabled). Cumulative counters showed **29 TCP accepts, 28 established TLS
+connections, 28 device-auth challenges and 28 auth responses sent**, with **zero
+receiver-namespace or media messages**. One TLS connection failed/ended before
+the auth exchange. These counts are observations, not authentication success.
+
+Clients therefore reach the advertised listener; this is not merely a missing
+host-local mDNS record. The furthest observed protocol phase is device-auth
+exchange, with no receiver/application progress. That is consistent with the
+known untrusted self-signed device-auth chain, but no sender-side rejection
+reason has been captured. A Cast sender may probe/authenticate and filter the
+device before displaying a target. Host mDNS visibility never proved phone-picker
+visibility, and no connection success or receiver-app launch is claimed.
+
+No deployment, advertisement, speaker transport or verification policy was changed
+in response. Adding a downstream speaker bridge cannot solve device trust. Stop
+at this compatibility boundary unless a legitimate authenticated receiver route
+is established; do not extract keys, weaken the sender or switch to a DLNA frontend.
+
 ## Reproducible local build (not installation)
 
 Use the verified stable source as base, **not a registry latest image**. The base

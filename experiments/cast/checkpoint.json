@@ -23,7 +23,19 @@
     "stableContainerAndConfigUnchanged": true,
     "speakerMutationsIssued": false,
     "requestedSpeakerBridge": "not_implemented_compatibility_blocked",
-    "androidTests": "pending"
+    "androidTests": "user_reports_target_absent_android_and_chromium_versions_unknown",
+    "subsequentDiscoveryDiagnosis": {
+      "tcpAccepted": 29,
+      "tlsEstablished": 28,
+      "authChallengeReceived": 28,
+      "authResponseSentNotAccepted": 28,
+      "receiverMessagesReceived": 0,
+      "mediaMessagesReceived": 0,
+      "observedBoundary": "device_auth_exchange_without_receiver_application_progress",
+      "senderSideErrorCaptured": false,
+      "interpretation": "consistent_with_untrusted_device_identity_not_merely_absent_mdns",
+      "runtimeChanged": false
+    }
   },
   "androidSdkCompatibilityVerified": false,
   "speakerTransportImplemented": false,
