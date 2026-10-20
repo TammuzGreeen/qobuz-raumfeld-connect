@@ -1,9 +1,24 @@
 # Offsite setup/advertisement diagnostic candidate
 
-Branch: `fix/setup-advertisement-diagnostics`, based on stable `v1.0.0`
-(`c5b87d52937fbe62d983da5a4863ff2c8a1e43ba`). Chromecast development is paused
-and none of its experimental code is included here. This is a **test image**, not
-a stable upgrade, proven offsite playback fix, or deployment to an existing host.
+Diagnostics and their setup GUI are included on **`main`**, merged through PR #4.
+They originated on `fix/setup-advertisement-diagnostics`, based on stable `v1.0.0`
+(`c5b87d52937fbe62d983da5a4863ff2c8a1e43ba`). Chromecast development is paused;
+the experiment, separate GUI and disabled grouping stub have been removed from
+`main`. The separately downloadable image below remains a **test image**, not a
+stable upgrade, proven offsite playback fix, or deployment to an existing host.
+
+## Setup GUI
+
+Use the existing setup page on port **8788**, with the installation's setup token.
+The diagnostics are part of this page, not a separate Cast service or port 8799.
+The page shows runtime version/playback path, authentication state, local advertiser
+count, global/per-room blockers and storage/read errors. Save and signout failures
+retain their actionable server message. No Chromecast or nonfunctional grouping
+control is presented. Native grouping is not implemented by this diagnostic change.
+
+Updating source on main does not replace a running container. Rebuild from main or
+load the pinned test image below; restarting an older image does not add the GUI.
+No main push or cleanup here changes a running Qobuz or Cast deployment remotely.
 
 ## Changes
 

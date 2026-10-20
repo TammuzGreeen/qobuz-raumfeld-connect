@@ -22,9 +22,6 @@ credentials.json
 *.log
 **/credentials.json
 
-# Experimental runtime state must not enter either image build context.
-experiments/cast/data
-experiments/cast/config.json
-experiments/cast/wire/target
+# Private runtime tokens/certificates must not enter image build contexts.
 **/gui-token
 **/*.der

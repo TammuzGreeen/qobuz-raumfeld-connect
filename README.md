@@ -1,12 +1,11 @@
 # Raumfeld Connect 1.0
 
-> **Offsite troubleshooting candidate:** [setup and advertisement diagnostics](SETUP_DIAGNOSTICS.md).
-> This branch adds actionable storage errors and per-room advertisement blockers;
-> it does not yet establish the cause of an offsite discovery failure.
-> **Experimental branch:** [Cast receiver diagnostic](experiments/cast/README.md),
-> disabled by default. Stock Android device authentication is a known trust boundary;
-> Audiobookshelf phone compatibility is not verified. No Cast speaker playback or
-> functional regrouping is claimed. Stable Qobuz launchers remain unchanged.
+> **Setup and advertisement diagnostics are included on `main`:** the setup GUI
+> reports actionable storage errors and per-room advertisement blockers, alongside
+> state-change logs. See [diagnostics and offsite installation](SETUP_DIAGNOSTICS.md).
+> The cause of an offsite discovery failure still needs its runtime diagnostics.
+> Chromecast development is paused; its diagnostic receiver and stub GUI have been
+> removed from `main`. Qobuz playback launchers remain unchanged.
 
 **First stable release: [v1.0.0](https://github.com/TammuzGreeen/qobuz-raumfeld-connect/releases/tag/v1.0.0).**
 Qobuz Connect for independent ungrouped Raumfeld rooms, with native Spotify source

@@ -1,8 +1,0 @@
-{
-  "targetName": "Raumfeld Cast Experiment",
-  "selectedRoom": "synthetic-room-a",
-  "rooms": [
-    {"id": "synthetic-room-a", "name": "Example logical room A"},
-    {"id": "synthetic-room-b", "name": "Example logical room B"}
-  ]
-}
