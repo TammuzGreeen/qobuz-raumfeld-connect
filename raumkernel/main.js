@@ -32,7 +32,9 @@ if (process.env.DISCOVERY_MODE !== 'off') {
 }
 const server = createApi(store, {token: process.env.API_TOKEN, controller, binding});
 server.listen(Number(process.env.API_PORT || 8787), process.env.API_BIND || '127.0.0.1', () => {
-  console.log('Raumfeld API ready; playback requires explicit room selection and current ownership');
+  console.log(JSON.stringify({event: 'raumfeld_api_ready', playbackPath,
+    discoveryEnabled: process.env.DISCOVERY_MODE !== 'off',
+    message: 'Playback requires explicit room selection; advertisement blockers are reported by setup_state'}));
 });
 function shutdown() {
   observer?.stop();

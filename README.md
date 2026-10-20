@@ -1,5 +1,8 @@
 # Raumfeld Connect 1.0
 
+> **Offsite troubleshooting candidate:** [setup and advertisement diagnostics](SETUP_DIAGNOSTICS.md).
+> This branch adds actionable storage errors and per-room advertisement blockers;
+> it does not yet establish the cause of an offsite discovery failure.
 > **Experimental branch:** [Cast receiver diagnostic](experiments/cast/README.md),
 > disabled by default. Stock Android device authentication is a known trust boundary;
 > Audiobookshelf phone compatibility is not verified. No Cast speaker playback or

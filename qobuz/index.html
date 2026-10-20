@@ -8,15 +8,23 @@
 <section class="card" id="unlock"><h2>Open setup</h2><p>Enter the setup token from your installation’s <code>.env</code> file.</p><input id="token" type="password" placeholder="Setup token" autocomplete="current-password"><button id="unlockButton">Continue</button></section>
 <main id="settings" hidden><section class="card"><h2>Qobuz account</h2><p id="account"></p><button id="login">Sign in with Qobuz</button><button id="logout">Sign out</button></section>
 <section class="card"><h2>Speakers</h2><p id="discovery"></p><div id="rooms"></div><p><label>Audio quality <select id="quality"><option value="5">MP3</option><option value="6">CD quality · recommended</option><option value="7">Up to 24-bit / 96 kHz</option><option value="27">Up to 24-bit / 192 kHz</option></select></label></p><button id="save">Save speakers and quality</button><button id="refresh">Refresh</button><p><small>Saving releases existing Qobuz sessions. Reselect the speaker in Qobuz to resume. Grouped rooms are unavailable in this release.</small></p></section></main>
-<p id="message" role="status"></p><p><small>Version 0.2.0 · Hardware playback has not yet been verified.</small></p>
+<p id="message" role="status"></p><p id="runtime"></p><pre id="advertisementDetails" style="white-space:pre-wrap"></pre><p><small>Advertisement means local registration, not confirmed phone visibility or audible playback. Keep credentials and full status captures private.</small></p>
 <script>
 let token=sessionStorage.getItem('setupToken')||'';
 const $=id=>document.getElementById(id);
-async function api(path,body){const r=await fetch('/api/'+path,{method:body===undefined?'GET':'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});if(!r.ok)throw Error(await r.text());return r.json()}
+async function api(path,body){const r=await fetch('/api/'+path,{method:body===undefined?'GET':'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});if(!r.ok){let detail;try{detail=await r.json()}catch{}throw Error(detail?.message||'Request rejected ('+r.status+'). Check your setup token and refresh discovery.')}return r.json()}
 const reasons={host_unavailable:'Raumfeld host unavailable',topology_stale:'room topology is stale',physical_renderer_missing:'no physical renderer in room',physical_observation_missing:'waiting for a complete physical renderer observation',physical_observation_stale:'physical renderer observation is stale',virtual_observation_missing:'waiting for a complete zone renderer observation',virtual_observation_stale:'zone renderer observation is stale',lan_address_not_local:'LAN_ADDRESS is not assigned to this Docker host',receiver_port_in_use:'receiver port is already in use',receiver_start_failed:'receiver startup failed'};
+Object.assign(reasons,{no_rooms_configured:'No rooms configured',authentication_required:'Qobuz sign-in required',authentication_pending:'Qobuz authentication or credential persistence is pending; check account/storage status',lan_address_missing:'LAN_ADDRESS is missing',control_state_unavailable:'Cannot read speaker state from the local Raumfeld API',topology_unavailable_or_stale:'Waiting for fresh Raumfeld topology',configured_room_not_discovered:'Configured room ID is absent from discovery; refresh discovery and verify the saved selection',grouped_or_unresolved_zone:'Room belongs to a grouped or unresolved zone; inspect grouping in Teufel without automatic regrouping',incomplete_renderer_observation:'Complete physical/zone renderer observations are missing or stale; see read errors above',storage_permission_denied:'Data permissions prevent access; check runtime UID/GID and directory ACLs, not chmod 777',storage_read_only:'Data mount is read-only',storage_full:'Data filesystem or quota is full',storage_invalid_json:'Saved JSON is invalid; back it up before correcting it',storage_io_error:'Persistent storage access failed'});
 async function refresh(){try{
   const s=await api('status');$('settings').hidden=false;$('unlock').hidden=true;
   $('account').textContent=s.auth==='connected'?'Signed in':s.auth.replaceAll('_',' ');
+  $('runtime').textContent='Version '+(s.version||'unknown')+' · Playback path: '+(s.playbackPath||'unknown')+(s.playbackPath==='guarded'?' (legacy guarded integration; not upstream_first)':'');
+  const diagnostics=s.advertisementDiagnostics;
+  $('advertisementDetails').textContent=diagnostics?[
+    ...(diagnostics.blockers||[]).map(code=>'Blocked: '+(reasons[code]||code)),
+    ...(diagnostics.rooms||[]).map(room=>room.alias+': '+(room.advertised?'advertised locally':room.blockers.map(code=>reasons[code]||code).join('; ')||'waiting for advertiser startup')),
+    ...(s.storageErrors||[]).map(error=>error.file+' '+error.operation+': '+(reasons[error.code]||error.code))
+  ].join('\n'):'';
   $('discovery').textContent=!s.lanAddress?'Set LAN_ADDRESS to the Docker host’s speaker-facing IPv4 address and restart.':s.lanAddressLocal===false?'LAN_ADDRESS is not assigned to this Docker host. Correct it in the deployment and recreate the container, preserving /data.':s.stateError?'Unable to read current speaker state. Advertisement is suspended.':s.raumfeldReady?'Select the rooms you want to see in Qobuz. Source labels do not determine availability.':'Waiting for fresh Raumfeld room topology…';
   $('quality').value=s.quality;$('rooms').replaceChildren();
   for(const room of s.rooms){
@@ -47,7 +55,7 @@ async function refresh(){try{
 $('unlockButton').onclick=()=>{token=$('token').value;sessionStorage.setItem('setupToken',token);refresh()};
 $('refresh').onclick=refresh;
 $('login').onclick=async()=>{try{const r=await api('login',{});location.href=r.url}catch(e){$('message').textContent='Unable to start login. Please retry.'}};
-$('logout').onclick=async()=>{await api('logout',{});refresh()};
-$('save').onclick=async()=>{try{await api('config',{rooms:[...document.querySelectorAll('#rooms input:checked')].map(e=>e.value),quality:Number($('quality').value)});$('message').textContent='Saved. Speakers will appear shortly; press Refresh to check.'}catch(e){$('message').textContent='Unable to save. Refresh discovery and try again.'}};
+$('logout').onclick=async()=>{try{await api('logout',{});refresh()}catch(e){$('message').textContent=e.message}};
+$('save').onclick=async()=>{try{await api('config',{rooms:[...document.querySelectorAll('#rooms input:checked')].map(e=>e.value),quality:Number($('quality').value)});$('message').textContent='Saved. Press Refresh to check advertisement prerequisites.'}catch(e){$('message').textContent=e.message}};
 if(token)refresh();
 </script></html>

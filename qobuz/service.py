@@ -18,24 +18,7 @@ from qobuz_proxy.auth.oauth import build_oauth_url, exchange_code, OAUTH_APP_ID,
 from .client import RaumfeldClient
 from .receiver import Receiver
 from .diagnostics import ConnectDiagnostics
-
-
-def save_json(path, data):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_suffix('.tmp')
-    fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, 'w', encoding='utf8') as out:
-        json.dump(data, out)
-    os.replace(temp, path)
-    os.chmod(path, 0o600)
-
-
-def load_json(path, default):
-    try:
-        return json.loads(Path(path).read_text(encoding='utf8'))
-    except (FileNotFoundError, json.JSONDecodeError):
-        return default
+from .setup_diagnostics import StorageError, save_json, load_json, advertisement_diagnostics
 
 
 def local_address(address):
@@ -61,7 +44,13 @@ class Service:
             raise ValueError('Invalid PLAYBACK_PATH')
         if address:
             ipaddress.IPv4Address(address)
-        self.settings = load_json(self.data_dir / 'config.json', {'rooms': [], 'quality': 6})
+        self.storage_errors = {}
+        self._last_report = None
+        self.settings = {'rooms': [], 'quality': 6}
+        try:
+            self.settings = load_json(self.data_dir / 'config.json', self.settings)
+        except StorageError as error:
+            self.storage_failure(error)
         self.api = None
         self.receivers = {}
         self.receiver_errors = {}
@@ -81,6 +70,29 @@ class Service:
                 ('POST','/api/logout',self.logout)]:
             self.app.router.add_route(method, route, handler)
 
+    def storage_failure(self, error):
+        detail = error.detail
+        if self.storage_errors.get(detail['file']) != detail:
+            print(json.dumps({'event': 'setup_storage_error', **detail,
+                              'uid': os.geteuid(), 'gid': os.getegid()}), flush=True)
+        self.storage_errors[detail['file']] = detail
+
+    def persisted(self, filename, data):
+        save_json(self.data_dir / filename, data)
+        self.storage_errors.pop(filename, None)
+
+    def report_state(self):
+        diagnostics = advertisement_diagnostics(self, local_address(self.address))
+        report = {'event': 'setup_state', 'playbackPath': self.playback_path,
+                  'auth': self.auth_status, 'configuredCount': len(self.settings['rooms']),
+                  'discoveredCount': len(self.state['rooms']), 'advertisedCount': len(self.receivers),
+                  'topologyFresh': self.state['topologyFresh'], 'blockers': diagnostics['blockers'],
+                  'rooms': [{k: r[k] for k in ('alias', 'advertised', 'blockers', 'observationErrors')}
+                            for r in diagnostics['rooms']]}
+        if report != self._last_report:
+            print(json.dumps(report), flush=True)
+            self._last_report = report
+
     @web.middleware
     async def auth(self, request, handler):
         if request.path.startswith('/api/') and not hmac.compare_digest(
@@ -90,8 +102,14 @@ class Service:
             response = await handler(request)
         except web.HTTPException:
             raise
+        except StorageError as error:
+            self.storage_failure(error)
+            response = web.json_response({'error': error.detail['code'], 'message': error.message,
+                                          'storage': error.detail}, status=503)
         except Exception:
-            return web.json_response({'error': 'Request failed; check configuration and retry'}, status=400)
+            print(json.dumps({'event': 'setup_request_failed', 'code': 'request_failed'}), flush=True)
+            response = web.json_response({'error': 'request_failed',
+                'message': 'Request failed. Check categorical setup diagnostics in the container logs.'}, status=400)
         response.headers['Cache-Control'] = 'no-store'
         response.headers['Referrer-Policy'] = 'no-referrer'
         response.headers['X-Content-Type-Options'] = 'nosniff'
@@ -115,6 +133,9 @@ class Service:
             'receiverErrors': dict(self.receiver_errors),
             'receiverConnections': {id: receiver.diagnostics() for id, receiver in self.receivers.items()},
             'connectEvents': self.connect_diagnostics.snapshot(),
+            'setupDiagnosticsVersion': 1,
+            'storageErrors': list(self.storage_errors.values()),
+            'advertisementDiagnostics': advertisement_diagnostics(self, local_address(self.address)),
             'advertised': list(self.receivers), 'version': '1.0.0'})
 
     async def configure(self, request):
@@ -138,10 +159,12 @@ class Service:
                 port = previous[id]['port'] if id in previous else next(p for p in range(8790, 8840) if p not in used)
                 used.add(port)
                 rooms.append({'id': id, 'name': known[id]['name'] + ' Qobuz', 'port': port})
-            self.settings = {'rooms': rooms, 'quality': quality}
-            save_json(self.data_dir / 'config.json', self.settings)
+            settings = {'rooms': rooms, 'quality': quality}
+            self.persisted('config.json', settings)
+            self.settings = settings
             self.receiver_errors.clear()
             await self.stop_receivers()
+            self.report_state()
         return web.json_response({'saved': True})
 
     async def login(self, request):
@@ -165,27 +188,29 @@ class Service:
         async with self.lock:
             if generation != self.auth_generation:
                 raise web.HTTPBadRequest(text='Login superseded. Start again from setup.')
+            self.persisted('credentials.json', credentials)
             self.auth_generation += 1
             self.nonces.clear()
             await self.stop_receivers()
             if self.api:
                 await self.api.__aexit__(None, None, None)
                 self.api = None
-            save_json(self.data_dir / 'credentials.json', credentials)
             self.auth_status = 'validating'
             self.retry_at = 0
+            self.report_state()
         raise web.HTTPFound('/')
 
     async def logout(self, request):
         async with self.lock:
+            self.persisted('credentials.json', {})
             self.auth_generation += 1
             await self.stop_receivers()
             if self.api:
                 await self.api.__aexit__(None, None, None)
             self.api = None
             self.nonces.clear()
-            save_json(self.data_dir / 'credentials.json', {})
             self.auth_status = 'login_required'
+            self.report_state()
         return web.json_response({'loggedOut': True})
 
     async def stop_receivers(self):
@@ -193,8 +218,16 @@ class Service:
         await asyncio.gather(*(r.stop() for r in receivers.values()), return_exceptions=True)
 
     async def authenticate(self):
-        credentials = load_json(self.data_dir / 'credentials.json', {})
+        try:
+            credentials = load_json(self.data_dir / 'credentials.json', {})
+        except StorageError as error:
+            self.storage_failure(error)
+            self.auth_status = 'storage_error'
+            self.retry_at = time.monotonic() + 30
+            return
+        self.storage_errors.pop('credentials.json', None)
         if not credentials.get('user_auth_token') or not credentials.get('user_id'):
+            self.auth_status = 'login_required'
             return
         api = QobuzAPIClient(OAUTH_APP_ID, OAUTH_APP_SECRET)
         # Match upstream app.py: do not enter this client's context manager.
@@ -207,10 +240,15 @@ class Service:
                 self.retry_at = time.monotonic() + 300
                 await api.__aexit__(None, None, None)
                 return
+            credentials['user_auth_token'] = api.user_auth_token
+            self.persisted('credentials.json', credentials)
             self.api = api
             self.auth_status = 'connected'
-            credentials['user_auth_token'] = api.user_auth_token
-            save_json(self.data_dir / 'credentials.json', credentials)
+        except StorageError as error:
+            await api.__aexit__(None, None, None)
+            self.storage_failure(error)
+            self.auth_status = 'storage_error'
+            self.retry_at = time.monotonic() + 30
         except Exception:
             await api.__aexit__(None, None, None)
             self.auth_status = 'retrying_login'
@@ -252,6 +290,7 @@ class Service:
                             continue
                         self.receivers[id] = receiver
                         self.receiver_errors.pop(id, None)
+        self.report_state()
 
     async def reconcile(self):
         while not self.closed.is_set():
@@ -266,6 +305,7 @@ class Service:
                 async with self.lock:
                     if self.playback_path != 'direct_dlna':
                         await self.stop_receivers()
+                self.report_state()
             try:
                 await asyncio.wait_for(self.closed.wait(), timeout=5)
             except TimeoutError:
@@ -279,7 +319,8 @@ class Service:
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, self.closed.set)
-        print('Qobuz setup ready on port 8788; select rooms and sign in', flush=True)
+        print('Qobuz setup HTTP ready on port 8788; current state follows in setup_state events', flush=True)
+        self.report_state()
         await self.closed.wait()
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
