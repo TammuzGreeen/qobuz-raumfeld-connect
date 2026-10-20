@@ -20,6 +20,38 @@ Updating source on main does not replace a running container. Rebuild from main 
 load the pinned test image below; restarting an older image does not add the GUI.
 No main push or cleanup here changes a running Qobuz or Cast deployment remotely.
 
+## Publishing / pulling registry latest
+
+Repository maintainers can explicitly rebuild `main` and publish `latest` through
+the test-gated GitHub Actions workflow:
+
+```sh
+gh workflow run ci.yml --ref main -f publish_latest=true
+```
+
+This builds linux/amd64 and linux/arm64, updates only registry `latest` and the
+source-SHA image tag, and creates no version tag or GitHub release. It refuses to
+publish a source revision that is no longer main. Existing versioned images/releases
+remain untouched. Ordinary source pushes do not automatically publish latest.
+Check the workflow result and the registry revision label before claiming delivery.
+
+After a successful publication, users can pull and recreate their existing app:
+
+```sh
+docker pull ghcr.io/tammuzgreeen/qobuz-raumfeld-connect:latest
+```
+
+Retain the previous image/digest and private app/data backup for rollback. Keep the
+same persistent data, API token, networking and other environment settings; do not
+start a second competing instance. Registry builds explicitly default to **guarded**
+for setup compatibility. They contain the upstream-first integration but do not
+silently migrate an existing setup to it. The setup diagnostics do not themselves
+establish the cause of an offsite readiness failure or guarantee phone visibility.
+
+Clean source tests now apply the same hash-checked SDK/player patches as Docker,
+before importing/testing those dependencies. Node tests run serially, matching the
+validated local command, without removing or weakening source/ownership assertions.
+
 ## Changes
 
 - Storage failures report `storage_permission_denied`, `storage_read_only`,
@@ -52,9 +84,10 @@ existing accepted-build setup and is not a workaround for unexplained readiness.
 
 Test-image prerelease: `setup-diagnostics-2026-10-19`.
 Local image tag after load: `raumfeld-connect:setup-diagnostics-2026-10-19`.
-GitHub credentials available to the publisher lack GHCR package-write/workflow scope;
-therefore delivery is a GitHub **prerelease image archive**, not a registry push.
-Stable/latest registry tags and existing release tags are not changed.
+The original diagnostic delivery was a GitHub **prerelease image archive**, because
+the publisher then lacked workflow scope. That pinned archive remains available
+independently of later registry-latest rebuilds; pulling registry latest does not
+mean pulling this exact archive. Existing versioned release tags are unchanged.
 
 Download `raumfeld-connect-setup-diagnostics-linux-amd64.tar.gz` and `SHA256SUMS`
 from the prerelease Assets. On the offsite Docker host:

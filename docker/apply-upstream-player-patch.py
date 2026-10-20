@@ -46,7 +46,7 @@ def apply(source, diff, expected=EXPECTED):
 if __name__ == '__main__':
     spec = importlib.util.find_spec('qobuz_proxy.playback.player')
     target = Path(spec.origin)
-    patch = Path('/app/upstream-patches/partial-playback-state.patch').read_text()
+    patch = (Path(__file__).resolve().parents[1] / 'upstream-patches/partial-playback-state.patch').read_text()
     result = apply(target.read_bytes(), patch)
     compile(result, str(target), 'exec')
     target.write_bytes(result)

@@ -4,6 +4,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      publish_latest:
+        description: Rebuild main and publish latest plus an immutable source-SHA tag (no version tag or release)
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -20,10 +25,18 @@ jobs:
         with:
           python-version: 3.13.7
       - run: npm ci --ignore-scripts
+      - name: Apply the production SDK adaptation before source tests
+        run: python docker/apply-raumkernel-creation-errors.py
       - run: npm test
       - run: npm run smoke
       - run: python -m pip install uv==0.8.22
       - run: uv sync --project qobuz --frozen --no-dev
+      - name: Apply the production player backports before source tests
+        run: |
+          qobuz/.venv/bin/python docker/apply-upstream-player-patch.py
+          qobuz/.venv/bin/python docker/apply-upstream-seek-patch.py
+          qobuz/.venv/bin/python docker/apply-upstream-paused-seek-patch.py
+          qobuz/.venv/bin/python docker/apply-upstream-start-position-patch.py
       - run: qobuz/.venv/bin/python -m unittest discover -s tests -p 'test_*.py'
       - run: PYTHONPATH=. qobuz/.venv/bin/python tests/integration.py
       - run: python -m compileall -q qobuz docker
@@ -78,7 +91,7 @@ jobs:
           test "$(docker inspect --format '{{.State.ExitCode}}' raumfeld-discovery)" = 0
   publish:
     needs: test
-    if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release ')
+    if: (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release ')) || (github.event_name == 'workflow_dispatch' && inputs.publish_latest)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -93,33 +106,51 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Read release version
-        id: version
+      - name: Select publishing tags without replacing existing versions
+        id: metadata
+        env:
+          RELEASE_BUILD: ${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release ') }}
         run: |
+          set -euo pipefail
           test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA"
           version=$(node -p "require('./package.json').version")
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ "$RELEASE_BUILD" = true ]; then
+            test -z "$(git ls-remote origin "refs/tags/v$version")"
+          fi
+          {
+            echo 'tags<<EOF'
+            echo 'ghcr.io/tammuzgreeen/qobuz-raumfeld-connect:latest'
+            echo "ghcr.io/tammuzgreeen/qobuz-raumfeld-connect:sha-$GITHUB_SHA"
+            if [ "$RELEASE_BUILD" = true ]; then
+              echo "ghcr.io/tammuzgreeen/qobuz-raumfeld-connect:$version"
+            fi
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83
         id: image
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ghcr.io/tammuzgreeen/qobuz-raumfeld-connect:${{ steps.version.outputs.version }}
-            ghcr.io/tammuzgreeen/qobuz-raumfeld-connect:sha-${{ github.sha }}
-            ghcr.io/tammuzgreeen/qobuz-raumfeld-connect:latest
+          build-args: PLAYBACK_PATH=guarded
+          tags: ${{ steps.metadata.outputs.tags }}
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
           provenance: true
           sbom: true
-      - name: Verify published manifest and create release
+      - name: Verify published manifest
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.version.outputs.version }}
           DIGEST: ${{ steps.image.outputs.digest }}
         run: |
           docker buildx imagetools inspect "ghcr.io/tammuzgreeen/qobuz-raumfeld-connect@$DIGEST"
-          gh release create "v$VERSION" --target "$GITHUB_SHA" --title "Raumfeld Connect $VERSION" --notes-file CHANGELOG.md
           echo "Image digest: $DIGEST" >> "$GITHUB_STEP_SUMMARY"
+      - name: Create a new release only for an explicit release commit
+        if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release ')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.metadata.outputs.version }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          gh release create "v$VERSION" --target "$GITHUB_SHA" --title "Raumfeld Connect $VERSION" --notes-file CHANGELOG.md

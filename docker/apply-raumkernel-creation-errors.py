@@ -40,5 +40,5 @@ def apply(source):
 
 
 if __name__ == '__main__':
-    target = Path('/app/node_modules/node-raumkernel/lib/lib.manager.zoneManager.js')
+    target = Path(__file__).resolve().parents[1] / 'node_modules/node-raumkernel/lib/lib.manager.zoneManager.js'
     target.write_bytes(apply(target.read_bytes()))
