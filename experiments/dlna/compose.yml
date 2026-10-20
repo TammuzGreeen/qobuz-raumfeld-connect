@@ -1,0 +1,25 @@
+# Standalone experiment: NOT an override for stable or Cast Compose.
+# Stop stable first, only after explicit approval. Never run competing room control.
+services:
+  dlna-renderers:
+    image: ${DLNA_IMAGE:?Set the unique locally built experimental image tag}
+    pull_policy: never
+    network_mode: host
+    init: true
+    restart: "no"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      API_TOKEN: ${DLNA_API_TOKEN:?Set a separate private token of at least 32 characters}
+      LAN_ADDRESS: ${LAN_ADDRESS:?Set Docker host IPv4 on the speaker LAN}
+      RAUMFELD_HOST: ${RAUMFELD_HOST:-}
+      API_PORT: 8877
+      CONFIG_PATH: /data/config.json
+    volumes:
+      - ${DLNA_TEST_DATA:?Set the absolute separate test-state directory}:/data:ro
+    stop_grace_period: 15s

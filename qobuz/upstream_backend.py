@@ -137,6 +137,7 @@ class CompanionClient:
 
 
 class RoomDLNAClient(DLNAClient):
+    write_actions = frozenset({'SetAVTransportURI', 'Play', 'Pause', 'Stop', 'Seek', 'SetVolume'})
     def __init__(self, backend, endpoint, epoch):
         parsed = urlsplit(endpoint.description_url)
         super().__init__(parsed.hostname, parsed.port or 80, endpoint.description_url)
@@ -181,7 +182,7 @@ class RoomDLNAClient(DLNAClient):
     async def _soap_action_detailed(self, url, service, action, args, max_retries=None):
         mutating = not action.startswith('Get')
         if mutating:
-            if action not in {'SetAVTransportURI', 'Play', 'Pause', 'Stop', 'Seek', 'SetVolume'}:
+            if action not in self.write_actions:
                 raise EndpointUnavailable('unsupported_mutation')
             await self.backend.before_write(self, action)
             diagnostics = getattr(self.backend, 'diagnostics', None)
@@ -298,6 +299,7 @@ class RoomDLNAClient(DLNAClient):
 
 
 class DeferredRoomBackend(DLNABackend):
+    client_type = RoomDLNAClient
     # ABS_TIME Seek resumes this renderer even while paused.
     defer_paused_seek = True
     def __init__(self, companion, room_id, name, poll_seconds=2):
@@ -507,7 +509,7 @@ class DeferredRoomBackend(DLNABackend):
             if endpoint is None:
                 return
             # Never restart Speaker, clear its session, or send transport commands.
-            client = RoomDLNAClient(self, endpoint, epoch)
+            client = self.client_type(self, endpoint, epoch)
             try:
                 info = await client.connect()
                 if self.closed or epoch != self.epoch:

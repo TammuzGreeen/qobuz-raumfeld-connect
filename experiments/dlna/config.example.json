@@ -1,0 +1,7 @@
+{
+  "bridge_id": "REPLACE_WITH_A_PERSISTENT_UUID_FROM_uuidgen",
+  "rooms": [
+    {"id": "REPLACE_WITH_LOGICAL_ROOM_ID", "name": "Kitchen", "dlna_port": 8920},
+    {"id": "REPLACE_WITH_ANOTHER_LOGICAL_ROOM_ID", "name": "Office", "dlna_port": 8921}
+  ]
+}

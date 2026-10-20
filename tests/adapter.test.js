@@ -59,6 +59,17 @@ function setup(t, options = {}) {
   return {kernel, store, adapter, device, calls};
 }
 
+test('bridge-owned renderers are excluded from Raumfeld observation and source evidence', async t => {
+  const {adapter, kernel} = setup(t, {excludedUdns: ['uuid:bridge-owned']});
+  const device = {udn: () => 'uuid:bridge-owned',
+    callAction: () => assert.fail('Must not observe our own bridge')};
+  kernel.emit('mediaRendererRaumfeldAdded', device.udn(), device);
+  kernel.emit('mediaRendererRaumfeldVirtualAdded', device.udn(), device);
+  kernel.emit('rendererStateChanged', device, {AVTransportURI: 'spotify:cached'});
+  assert.equal(adapter.devices.has(device.udn()), false);
+  assert.equal(adapter.devices.has('uuid:physical-3'), true);
+});
+
 test('real read action shapes detect Spotify and polling recovers missed topology', async t => {
   const {store, adapter, calls} = setup(t);
   await new Promise(resolve => setImmediate(resolve));

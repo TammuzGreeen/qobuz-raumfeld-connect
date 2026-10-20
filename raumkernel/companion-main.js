@@ -16,7 +16,9 @@ if (process.env.DISCOVERY_MODE !== 'off') {
     if (!/^[a-zA-Z0-9.-]+$/.test(process.env.RAUMFELD_HOST)) throw new Error('Invalid RAUMFELD_HOST');
     kernel.settings.raumfeldHost = process.env.RAUMFELD_HOST;
   }
-  observer = new RaumkernelObserver(kernel, store);
+  observer = new RaumkernelObserver(kernel, store, {
+    excludedUdns: (process.env.EXCLUDED_RENDERER_UDNS || '').split(',').filter(Boolean),
+  });
   observer.start();
 }
 const allowedRooms = () => {

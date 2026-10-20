@@ -57,12 +57,13 @@ async function sourceInfo(device, fetchImpl, timeoutMs) {
 // Only read actions are exposed here. Neither repair nor renderer creation is
 // called on discovery, reconnect, removal, poll failure, or service shutdown.
 class RaumkernelObserver {
-  constructor(kernel, store, {pollMs = 5000, timeoutMs = 3000, fetchImpl = fetch} = {}) {
+  constructor(kernel, store, {pollMs = 5000, timeoutMs = 3000, fetchImpl = fetch, excludedUdns = []} = {}) {
     this.kernel = kernel;
     this.store = store;
     this.pollMs = pollMs;
     this.timeoutMs = timeoutMs;
     this.fetch = fetchImpl;
+    this.excludedUdns = new Set(excludedUdns);
     this.devices = new Map();
     this.listeners = [];
     this.epoch = 0;
@@ -90,7 +91,11 @@ class RaumkernelObserver {
       catch { this.store.topologyAt = null; }
     });
     for (const event of ['mediaRendererRaumfeldAdded', 'mediaRendererRaumfeldVirtualAdded']) {
-      this.on(event, (id, device) => this.devices.set(id, {device, version: 0}));
+      this.on(event, (id, device) => {
+        if (!this.excludedUdns.has(id) && !this.excludedUdns.has(device.udn())) {
+          this.devices.set(id, {device, version: 0});
+        }
+      });
     }
     for (const event of ['mediaRendererRemoved', 'mediaRendererRaumfeldRemoved', 'mediaRendererRaumfeldVirtualRemoved']) {
       this.on(event, id => {

@@ -1,5 +1,12 @@
 # Raumfeld Connect 1.0
 
+> **This branch is an isolated DLNA experiment based on stable `v1.0.0`, not a
+> replacement stable release.** See [DLNA renderer setup, architecture, limitations
+> and hardware test plan](experiments/dlna/README.md). It hosts one real UPnP
+> MediaRenderer per configured logical room (stereo pairs remain together).
+> No hardware playback acceptance or deployment is claimed; main, stable tags,
+> the running Qobuz installation and the separate Cast experiment are preserved.
+
 **First stable release: [v1.0.0](https://github.com/TammuzGreeen/qobuz-raumfeld-connect/releases/tag/v1.0.0).**
 Qobuz Connect for independent ungrouped Raumfeld rooms, with native Spotify source
 protection. User reports all six rooms working, with source handoffs, playback

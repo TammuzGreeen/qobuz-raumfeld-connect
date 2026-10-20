@@ -1,0 +1,26 @@
+name: DLNA experiment (offline, no publication)
+on:
+  push:
+    branches: [development/dlna-renderers]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+      - name: Stable-derived base and uniquely isolated experiment/test images
+        run: |
+          docker build --build-arg PLAYBACK_PATH=upstream_first -t raumfeld-connect:dlna-base-c5b87d5 .
+          docker build -f experiments/dlna/Dockerfile -t raumfeld-connect:dlna-renderers-initial-review .
+          docker build -f experiments/dlna/Dockerfile.test -t raumfeld-connect:dlna-offline-tests .
+      - name: Source regressions and wire HTTP SOAP GENA with no external network
+        run: docker run --rm --network none raumfeld-connect:dlna-offline-tests
+      - name: Real SSDP packets on an isolated Docker network, never host networking
+        run: |
+          docker network create --internal dlna-offline
+          docker run --rm --network dlna-offline --entrypoint /app/qobuz/.venv/bin/python raumfeld-connect:dlna-offline-tests tests/dlna_ssdp_smoke.py
+          docker run --rm --network dlna-offline --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true --entrypoint /app/qobuz/.venv/bin/python raumfeld-connect:dlna-offline-tests tests/dlna_packaged_smoke.py
+          docker network rm dlna-offline
