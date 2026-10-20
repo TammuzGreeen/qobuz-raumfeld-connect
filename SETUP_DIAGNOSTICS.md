@@ -43,9 +43,11 @@ docker pull ghcr.io/tammuzgreeen/qobuz-raumfeld-connect:latest
 
 Retain the previous image/digest and private app/data backup for rollback. Keep the
 same persistent data, API token, networking and other environment settings; do not
-start a second competing instance. Registry builds explicitly default to **guarded**
-for setup compatibility. They contain the upstream-first integration but do not
-silently migrate an existing setup to it. The setup diagnostics do not themselves
+start a second competing instance. Registry builds now default to **upstream_first**,
+matching the accepted local playback integration. Set `PLAYBACK_PATH=guarded`
+explicitly to use the legacy setup/advertisement diagnostics GUI described here.
+See [playback-path selection and upgrade notice](README.md#playback-path-selection).
+The setup diagnostics do not themselves
 establish the cause of an offsite readiness failure or guarantee phone visibility.
 
 Clean source tests now apply the same hash-checked SDK/player patches as Docker,
@@ -75,10 +77,10 @@ validated local command, without removing or weakening source/ownership assertio
 
 No speaker-readiness/ownership checks are weakened. No automatic zone creation,
 source takeover, regrouping or mutation retry is added. Existing upstream-first
-playback/player/backends and default launcher selection are unchanged. The tested
-default is **guarded**, matching the reported installation: this diagnostic does
-not silently migrate it to upstream_first. Choosing upstream_first requires the
-existing accepted-build setup and is not a workaround for unexplained readiness.
+playback/player/backends are unchanged. The original diagnostic archive defaults
+to **guarded**, matching the reported installation at that time; current registry
+`latest` defaults to **upstream_first**. Upstream-first requires the existing
+accepted-build setup and is not a proven fix for unexplained readiness or API errors.
 
 ## Download and install offsite (Linux amd64)
 

@@ -1,6 +1,6 @@
 services:
   raumfeld-connect:
-    image: ghcr.io/tammuzgreeen/qobuz-raumfeld-connect:0.2.0
+    image: ghcr.io/tammuzgreeen/qobuz-raumfeld-connect:latest
     network_mode: host
     init: true
     restart: unless-stopped
@@ -14,6 +14,7 @@ services:
     security_opt:
       - no-new-privileges:true
     environment:
+      PLAYBACK_PATH: ${PLAYBACK_PATH:-upstream_first}
       API_TOKEN: ${API_TOKEN:?Set API_TOKEN in .env to a random string of at least 32 characters}
       RAUMFELD_HOST: ${RAUMFELD_HOST:-}
       LAN_ADDRESS: ${LAN_ADDRESS:?Set LAN_ADDRESS to the Docker host IPv4 address on the speaker LAN}

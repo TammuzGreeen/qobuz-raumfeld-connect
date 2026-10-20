@@ -34,7 +34,7 @@ RUN /app/qobuz/.venv/bin/python -c "from qobuz.receiver import Receiver; from qo
     && mkdir -p /data && chown 10001:10001 /data
 USER 10001:10001
 ENV PYTHONUNBUFFERED=1 API_BIND=127.0.0.1 API_PORT=8787
-ARG PLAYBACK_PATH=guarded
+ARG PLAYBACK_PATH=upstream_first
 ENV PLAYBACK_PATH=${PLAYBACK_PATH}
 LABEL org.opencontainers.image.source="https://github.com/TammuzGreeen/qobuz-raumfeld-connect" \
       org.opencontainers.image.version="1.0.0" \

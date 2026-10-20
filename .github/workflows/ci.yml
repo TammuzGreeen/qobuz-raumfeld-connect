@@ -45,12 +45,22 @@ jobs:
           API_TOKEN: ci-only-token-not-for-deployment-123456789
           LAN_ADDRESS: 192.0.2.2
       - run: docker build -t raumfeld-connect:ci .
+      - name: Default upstream-first launcher, health and shutdown (synthetic data)
+        run: |
+          docker run --rm --read-only --tmpfs /tmp \
+            --tmpfs /data:uid=10001,gid=10001,mode=0700 \
+            --cap-drop ALL --security-opt no-new-privileges:true \
+            -e API_TOKEN=ci-only-token-not-for-deployment-123456789 \
+            -e DISCOVERY_MODE=off -v "$PWD/tests:/tests:ro" \
+            --entrypoint /app/qobuz/.venv/bin/python \
+            raumfeld-connect:ci /tests/container_upstream_default.py
       - name: Container health, imports, and supervisor
         shell: bash
         run: |
           set -euo pipefail
           trap 'docker logs raumfeld-ci; docker rm -f raumfeld-ci' EXIT
           docker run -d --name raumfeld-ci --read-only --tmpfs /tmp \
+            -e PLAYBACK_PATH=guarded \
             -e API_TOKEN=ci-only-token-not-for-deployment-123456789 \
             -e DISCOVERY_MODE=off raumfeld-connect:ci
           healthy=false
@@ -76,6 +86,7 @@ jobs:
           set -euo pipefail
           trap 'docker logs raumfeld-discovery; docker rm -f raumfeld-discovery' EXIT
           docker run -d --name raumfeld-discovery --read-only --tmpfs /tmp \
+            -e PLAYBACK_PATH=guarded \
             --cap-drop ALL --security-opt no-new-privileges:true \
             -e API_TOKEN=ci-only-token-not-for-deployment-123456789 raumfeld-connect:ci
           healthy=false
@@ -134,7 +145,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          build-args: PLAYBACK_PATH=guarded
+          build-args: PLAYBACK_PATH=upstream_first
           tags: ${{ steps.metadata.outputs.tags }}
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}

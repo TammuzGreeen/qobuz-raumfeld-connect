@@ -1,11 +1,13 @@
 # Raumfeld Connect 1.0
 
-> **Setup and advertisement diagnostics are included on `main`:** the setup GUI
+> **`latest` now defaults to `upstream_first`**, matching the accepted local playback
+> integration. `guarded` is an explicit legacy option, not the stable playback default.
+> **Setup and advertisement diagnostics are included on `main` for `guarded`:** its setup GUI
 > reports actionable storage errors and per-room advertisement blockers, alongside
 > state-change logs. See [diagnostics and offsite installation](SETUP_DIAGNOSTICS.md).
 > The cause of an offsite discovery failure still needs its runtime diagnostics.
 > Chromecast development is paused; its diagnostic receiver and stub GUI have been
-> removed from `main`. Qobuz playback launchers remain unchanged.
+> removed from `main`. No running installation is updated automatically.
 
 **First stable release: [v1.0.0](https://github.com/TammuzGreeen/qobuz-raumfeld-connect/releases/tag/v1.0.0).**
 Qobuz Connect for independent ungrouped Raumfeld rooms, with native Spotify source
@@ -16,12 +18,58 @@ room's logical name are now user-confirmed working on deployed `1917f07`.
 See [1.0 release scope, setup and limitations](STABLE_RELEASE.md). This is a
 source-only release of the accepted upstream-first implementation plus version/
 documentation updates; it does not replace the running image or publish a registry
-image. Build with `PLAYBACK_PATH=upstream_first` explicitly. Beta/preview tags and
+image at the time of that release. Current `latest` is published separately and
+defaults to `PLAYBACK_PATH=upstream_first`. Beta/preview tags and
 private rollback images remain unchanged. Grouped playback and scrobbling acceptance
 are not claimed; broader reconnection/rebinding and detailed per-room regression
 coverage remain outstanding.
 
-## Historical preview (not current beta status)
+## Playback path selection
+
+Current registry `latest` and source builds default to **`upstream_first`**: the
+same playback integration accepted on the local testing deployment (`1917f07`),
+with upstream Qobuz sessions, queue, player, reporting and audio, and Node discovery/
+source-safety compatibility. This is a rebuild of current main, not a byte-identical
+copy of that private image; credentials, household configuration and data are never
+included. Existing stable release tags remain unchanged.
+
+```yaml
+environment:
+  PLAYBACK_PATH: upstream_first
+```
+
+Set this in your service's Compose `environment:` (TrueNAS: Apps → raumfeld-connect
+→ Edit → Custom Compose), or set `PLAYBACK_PATH=upstream_first` in `.env` with the
+provided Compose template. **There is no GUI playback-path selector.** Recreate the
+container to apply environment/image changes; restarting alone is insufficient.
+An existing explicit `PLAYBACK_PATH=guarded` overrides the image default.
+
+**Upgrade prerequisites:** preserve your existing private `/data` volume, API token,
+host networking and correct speaker-facing `LAN_ADDRESS`. Upstream-first requires
+saved rooms and `quality: 6` in `/data/config.json`, and writable `/data/upstream-first`
+for its runtime credentials. It prefers credentials there, falling back to the original
+`/data/credentials.json`; it does not overwrite the original credentials. Its status/
+authentication UI on port 8788 is loopback-only; use an SSH tunnel. Room add/edit/remove
+is disabled in that UI. Empty/unprepared data is not a ready-to-play installation.
+
+**`guarded` is the legacy alternative:** select `PLAYBACK_PATH=guarded` explicitly
+for its setup/advertisement diagnostics GUI or legacy comparisons. That GUI is not
+the upstream-first UI. Changing paths is not a proven fix for a Qobuz API 404 or
+an unexplained discovery failure. Keep the previous image/digest and a private data
+backup for rollback; stop the old instance before starting a replacement.
+
+```sh
+docker pull ghcr.io/tammuzgreeen/qobuz-raumfeld-connect:latest
+docker compose up -d
+```
+
+Review your Compose file first: older copies pin `0.2.0` or a local image, so pulling
+`latest` alone does not change their image selection. Preserve all other settings.
+Publication does not deploy to the testing NAS or offsite installations.
+
+## Historical preview (not current stable/latest status)
+
+**Everything below records the older preview, not current install instructions.**
 
 This branch contains a **working hardware-tested preview with seeking outstanding**,
 not a fully accepted release. The running deployment is unchanged by publication.
@@ -115,8 +163,8 @@ a zone. See [current status](CHECKPOINT_STATUS.md),
 
 **No preview container image is published to a registry or attached for download.**
 The prerelease provides source archives only. The older `v0.2.0` image is a different
-guarded path; it is not this hardware-tested preview. Do not pull `latest` as a
-substitute for the tested image.
+guarded path; it is not this hardware-tested preview. Current `latest` is a newer
+upstream-first rebuild, not an exact copy of this historical preview image.
 
 Use [PREVIEW_SETUP.md](PREVIEW_SETUP.md) for pinned source-build/load, private state
 preparation, loopback-only UI access and rollback instructions. The standalone
@@ -146,7 +194,7 @@ not reporting acknowledgements, audible hardware tests or Spotify continuity pro
 Tests requiring the player backport should run in the built image; plain `uv sync`
 installs the pinned original player without that build-time backport.
 
-The default `guarded` launcher and historical documents remain for comparison and
+The optional `guarded` launcher and historical documents remain for comparison and
 rollback. They do not describe the current upstream-first preview. Existing CI and
 the older registry-release workflow have not been changed for this publication;
 this prerelease does not imply CI validation of the experiment or a merge to main.
