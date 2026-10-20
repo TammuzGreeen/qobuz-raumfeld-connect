@@ -21,3 +21,10 @@ credentials.json
 *.pfx
 *.log
 **/credentials.json
+
+# Experimental runtime state must not enter either image build context.
+experiments/cast/data
+experiments/cast/config.json
+experiments/cast/wire/target
+**/gui-token
+**/*.der
